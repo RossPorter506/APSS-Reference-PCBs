@@ -372,109 +372,139 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=XCKFJLIN
 
+[Document20]
+DocumentPath=74LVC244APW_118\74LVC244APW_118\SOP65P640X110-20N.PcbLib
+AnnotationEnabled=1
+AnnotateStartValue=1
+AnnotationIndexControlEnabled=0
+AnnotateSuffix=
+AnnotateScope=All
+AnnotateOrder=-1
+DoLibraryUpdate=1
+DoDatabaseUpdate=1
+ClassGenCCAutoEnabled=1
+ClassGenCCAutoRoomEnabled=0
+ClassGenNCAutoScope=None
+DItemRevisionGUID=
+GenerateClassCluster=0
+DocumentUniqueId=
+
+[Document21]
+DocumentPath=74LVC244APW_118\74LVC244APW_118\74LVC244APW,118.SchLib
+AnnotationEnabled=1
+AnnotateStartValue=1
+AnnotationIndexControlEnabled=0
+AnnotateSuffix=
+AnnotateScope=All
+AnnotateOrder=-1
+DoLibraryUpdate=1
+DoDatabaseUpdate=1
+ClassGenCCAutoEnabled=1
+ClassGenCCAutoRoomEnabled=0
+ClassGenNCAutoScope=None
+DItemRevisionGUID=
+GenerateClassCluster=0
+DocumentUniqueId=
+
 [GeneratedDocument1]
-DocumentPath=Fabrication Files\NC Drill\Beacon.DRR
+DocumentPath=BOM\Beacon-2.0.3-BOM.xlsx
 DItemRevisionGUID=
 
 [GeneratedDocument2]
-DocumentPath=Fabrication Files\Gerber\Beacon.EXTREP
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.EXTREP
 DItemRevisionGUID=
 
 [GeneratedDocument3]
-DocumentPath=Fabrication Files\Gerber\Beacon.GBL
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GBL
 DItemRevisionGUID=
 
 [GeneratedDocument4]
-DocumentPath=Fabrication Files\Gerber\Beacon.GBO
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GBO
 DItemRevisionGUID=
 
 [GeneratedDocument5]
-DocumentPath=Fabrication Files\Gerber\Beacon.GBP
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GBP
 DItemRevisionGUID=
 
 [GeneratedDocument6]
-DocumentPath=Fabrication Files\Gerber\Beacon.GBS
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GBS
 DItemRevisionGUID=
 
 [GeneratedDocument7]
-DocumentPath=Fabrication Files\Gerber\Beacon.GD1
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GD1
 DItemRevisionGUID=
 
 [GeneratedDocument8]
-DocumentPath=Fabrication Files\Gerber\Beacon.GG1
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GG1
 DItemRevisionGUID=
 
 [GeneratedDocument9]
-DocumentPath=Fabrication Files\Gerber\Beacon.GKO
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GKO
 DItemRevisionGUID=
 
 [GeneratedDocument10]
-DocumentPath=Fabrication Files\Gerber\Beacon.GM5
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GM5
 DItemRevisionGUID=
 
 [GeneratedDocument11]
-DocumentPath=Fabrication Files\Gerber\Beacon.GTL
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GTL
 DItemRevisionGUID=
 
 [GeneratedDocument12]
-DocumentPath=Fabrication Files\Gerber\Beacon.GTO
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GTO
 DItemRevisionGUID=
 
 [GeneratedDocument13]
-DocumentPath=Fabrication Files\Gerber\Beacon.GTP
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GTP
 DItemRevisionGUID=
 
 [GeneratedDocument14]
-DocumentPath=Fabrication Files\Gerber\Beacon.GTS
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.GTS
 DItemRevisionGUID=
 
 [GeneratedDocument15]
-DocumentPath=Fabrication Files\NC Drill\Beacon.LDP
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.REP
 DItemRevisionGUID=
 
 [GeneratedDocument16]
-DocumentPath=Fabrication Files\Gerber\Beacon.REP
+DocumentPath=Fabrication Files\Gerber\Beacon-2.0.3-Gerber.RUL
 DItemRevisionGUID=
 
 [GeneratedDocument17]
-DocumentPath=Fabrication Files\Gerber\Beacon.RUL
+DocumentPath=Fabrication Files\NC Drill\Beacon-2.0.3-NC Drill.DRR
 DItemRevisionGUID=
 
 [GeneratedDocument18]
-DocumentPath=Fabrication Files\NC Drill\Beacon.TXT
+DocumentPath=Fabrication Files\NC Drill\Beacon-2.0.3-NC Drill.LDP
 DItemRevisionGUID=
 
 [GeneratedDocument19]
-DocumentPath=BOM\Bill of Materials-PSat Beacon.xlsx
+DocumentPath=Fabrication Files\NC Drill\Beacon-2.0.3-NC Drill.TXT
 DItemRevisionGUID=
 
 [GeneratedDocument20]
-DocumentPath=Project Outputs for PSat Beacon\BOM\Bill of Materials-PSat Beacon.xlsx
+DocumentPath=Fabrication Files\Pick Place\Beacon-2.0.3-Pick Place.txt
 DItemRevisionGUID=
 
 [GeneratedDocument21]
-DocumentPath=Project Outputs for PSat Beacon\Design Rule Check - Beacon.html
+DocumentPath=Project Outputs for PSat Beacon\BOM\Bill of Materials-PSat Beacon.xlsx
 DItemRevisionGUID=
 
 [GeneratedDocument22]
-DocumentPath=.\Fabrication Files\Pick Place\Pick Place for Beacon.txt
-DItemRevisionGUID=
-
-[GeneratedDocument23]
-DocumentPath=Fabrication Files\Pick Place\Pick Place for Beacon.txt
+DocumentPath=Project Outputs for PSat Beacon\Design Rule Check - Beacon.html
 DItemRevisionGUID=
 
 [Parameter1]
-Name=DesignName
-Value=Beacon
-
-[Parameter2]
 Name=BoardRevision
 Value=2.0.3
 
-[Parameter3]
+[Parameter2]
 Name=Designer
 Value=Ross P
+
+[Parameter3]
+Name=DesignName
+Value=Beacon
 
 [Parameter4]
 Name=Project
@@ -1137,7 +1167,6 @@ Type147=1
 Type148=1
 Type149=1
 Type150=1
-Type151=1
 
 [Difference Levels]
 Type1=1
@@ -1221,7 +1250,6 @@ Type78=1
 Type79=1
 Type80=1
 Type81=1
-Type82=1
 
 [Electrical Rules Check]
 Type1=1
@@ -1378,13 +1406,6 @@ Type151=2
 Type152=1
 Type153=1
 Type154=0
-Type155=0
-Type156=0
-Type157=0
-Type158=0
-Type159=0
-Type160=0
-Type161=0
 
 [ERC Connection Matrix]
 L1=NNNNNNNNNNNWNNNWW
