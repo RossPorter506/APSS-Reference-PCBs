@@ -2,25 +2,30 @@
 
 #![allow(dead_code)]
 use core::cell::RefCell;
+use bmp390::sync::Bmp390;
 use msp430fr2355::E_USCI_B1;
 use msp430fr2x5x_hal::{
     adc::{Adc, AdcConfig, ClockDivider, Predivider, Resolution, SampleTime, SamplingRate}, 
     clock::{Clock, ClockConfig, DcoclkFreqSel, MclkDiv, SmclkDiv}, delay::SysDelay, fram::Fram, 
-    gpio::{Batch, Floating, Input, Pin, Pin0, Pin1, Pin2, Pin3, Pin4, Pin5, Pin6, Pin7, P1, P2, P3, P4, P5, P6}, 
+    gpio::{Batch, Floating, Input, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7, P1, P2, P3, P4, P5, P6}, 
     i2c::{GlitchFilter, I2cBus, I2cConfig}, 
     pac::{E_USCI_B0, PMM, TB0}, pmm::Pmm, pwm::TimerConfig, spi::{Spi, SpiConfig}, timer::{Timer, TimerParts3}, watchdog::Wdt
 };
 use embedded_hal::digital::{OutputPin, StatefulOutputPin};
+use embedded_hal_bus::i2c::RefCellDevice as I2cRefCellDevice;
 use static_cell::StaticCell;
 use crate::{gps::Gps, lora::Radio, pin_mappings::*, println};
 
+
+pub type SharedI2c = I2cRefCellDevice<'static, SensorI2c>;
 /// Top-level object representing the board.
 /// 
 /// Not all peripherals are configured. If you need more, add their configuration code to ::configure().
 pub struct Board {
+    pub barometer: Bmp390<SharedI2c>,
     pub delay: SysDelay,
     pub gps: Gps,
-    pub i2c: I2cBus<E_USCI_B0>,
+    pub i2c: SharedI2c,
     pub adc: Adc,
     pub radio: Radio,
     pub gpio: Gpio,
@@ -41,7 +46,7 @@ pub fn configure() -> Board {
     let _wdt = Wdt::constrain(regs.WDT_A);
 
     // Configure GPIO. `used` are pins consumed by other peripherals.
-    let (gpio, used) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, regs.PMM);
+    let (gpio, mut used) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, regs.PMM);
     
     // Configure clocks to get accurate delay timing, and used by other peripherals
     let mut fram = Fram::new(regs.FRCTL);
@@ -88,6 +93,10 @@ pub fn configure() -> Board {
         .use_smclk(&smclk, clk_div)
         .configure(used.i2c_scl_pin, used.i2c_sda_pin);
 
+    // Again, make a static reference so we don't have to deal with lifetimes
+    static I2C: StaticCell<RefCell<I2cBus<E_USCI_B0>>> = StaticCell::new();
+    let i2c_ref: &'static _ = I2C.init(RefCell::new(i2c));
+
     // ADC
     let adc = AdcConfig::new(
         ClockDivider::_1, 
@@ -98,7 +107,10 @@ pub fn configure() -> Board {
         .use_modclk()
         .configure(regs.ADC);
 
-    Board {delay, gps, radio, i2c, adc, gpio, timer_b0}
+    used.bmp390_adr.set_low().ok();
+    let config = bmp390::Configuration::default();
+    let barometer = Bmp390::try_new(I2cRefCellDevice::new(i2c_ref), bmp390::Address::Down, delay, &config).unwrap(); // TODO: unwrap
+    Board {barometer, delay, gps, radio, i2c: I2cRefCellDevice::new(i2c_ref), adc, gpio, timer_b0}
 }
 
 /// The RGB LEDs are active low, which can be a little confusing. A helper struct to reduce cognitive load.
@@ -166,7 +178,6 @@ pub struct Gpio {
 
     pub pin6_0: Pin<P6, Pin0, Input<Floating>>,
     pub pin6_1: Pin<P6, Pin1, Input<Floating>>,
-    pub pin6_2: Pin<P6, Pin2, Input<Floating>>,
     pub pin6_3: Pin<P6, Pin3, Input<Floating>>,
     pub pin6_4: Pin<P6, Pin4, Input<Floating>>,
     pub pin6_5: Pin<P6, Pin5, Input<Floating>>,
@@ -214,8 +225,10 @@ impl Gpio {
         let i2c_sda_pin = port1.pin2.to_alternate1();
         let i2c_scl_pin = port1.pin3.to_alternate1();
 
+        let bmp390_adr = port6.pin2.to_output();
+
         // Pins consumed by other perihperals
-        let used = ConsumedPins {mosi, miso, sclk, lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, debug_tx_pin, i2c_scl_pin, i2c_sda_pin};
+        let used = ConsumedPins {mosi, miso, sclk, lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, debug_tx_pin, i2c_scl_pin, i2c_sda_pin, bmp390_adr};
 
         let pin1_0 = port1.pin0;
         let pin1_1 = port1.pin1;
@@ -246,7 +259,6 @@ impl Gpio {
 
         let pin6_0 = port6.pin0;
         let pin6_1 = port6.pin1;
-        let pin6_2 = port6.pin2;
         let pin6_3 = port6.pin3;
         let pin6_4 = port6.pin4;
         let pin6_5 = port6.pin5;
@@ -265,7 +277,7 @@ impl Gpio {
             pin3_4, pin3_5, pin3_6, pin3_7,
             pin4_0,
             pin5_1,
-            pin6_0, pin6_1, pin6_2, pin6_3, pin6_4, pin6_5, pin6_6, pin6_7,
+            pin6_0, pin6_1, pin6_3, pin6_4, pin6_5, pin6_6, pin6_7,
         };
 
         (gpio, used)
@@ -284,4 +296,5 @@ struct ConsumedPins {
     debug_tx_pin:   DebugTxPin,
     i2c_sda_pin:    I2cSdaPin,
     i2c_scl_pin:    I2cSclPin,
+    bmp390_adr:     Bmp390AdrPin,
 }

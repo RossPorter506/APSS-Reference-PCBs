@@ -1,5 +1,10 @@
-use msp430fr2x5x_hal::{gpio::{Alternate1, Alternate3, Floating, Input, Output, Pin, Pin0, Pin1, Pin2, Pin3, Pin4, Pin5, Pin6, Pin7, Pullup},
-pac::{E_USCI_A0, E_USCI_A1, E_USCI_B1, P1, P2, P3, P4, P5, P6}, serial::{Rx, Tx}, spi::Spi};
+use msp430fr2x5x_hal::{
+    gpio::{Alternate1, Alternate3, Floating, Input, Output, Pin, Pin0, Pin1, Pin2, Pin3, Pin4, Pin5, Pin6, Pin7, Pullup}, 
+    i2c::I2cBus, 
+    pac::{E_USCI_A0, E_USCI_A1, E_USCI_B0, E_USCI_B1, P1, P2, P3, P4, P5, P6}, 
+    serial::{Rx, Tx}, 
+    spi::Spi
+};
 
 pub type GpsEusci           = E_USCI_A1;
 pub type GpsTx              = Tx<E_USCI_A1>;
@@ -38,3 +43,7 @@ pub type PowerGood1v8Pin    = Pin<P3, Pin0, Input<Pullup>>;
 pub type PowerGood3v3Pin    = Pin<P3, Pin1, Input<Pullup>>;
 pub type Enable1v8Pin       = Pin<P3, Pin2, Output>;
 pub type Enable5vPin        = Pin<P3, Pin3, Output>;
+
+pub type Bmp390AdrPin       = Pin<P6, Pin2, Output>;
+pub type I2cEusci           = E_USCI_B0;
+pub type SensorI2c          = I2cBus<E_USCI_B0>;
