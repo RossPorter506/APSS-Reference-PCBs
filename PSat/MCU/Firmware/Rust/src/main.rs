@@ -2,10 +2,10 @@
 #![no_std]
 
 use arrayvec::ArrayString;
+use embedded_hal::delay::DelayNs;
 use gps::GgaParseError;
 // External imports
 use msp430_rt::entry;
-use msp430fr2x5x_hal::hal::blocking::delay::DelayMs;
 
 // Internal modules
 mod pin_mappings { include!("pin_mappings_v2_0.rs"); } // Import 'pin_mappings_v2_0' as 'pin_mappings'
@@ -49,7 +49,7 @@ fn main() -> ! {
 fn idle_loop(mut board: Board) -> ! {
     loop {
         // Snake the LEDs through the rainbow
-        const LED_DELAY_MS: u16 = 50; // ms
+        const LED_DELAY_MS: u32 = 50; // ms
 
         board.gpio.red_led.turn_on();
         board.delay.delay_ms(LED_DELAY_MS);
