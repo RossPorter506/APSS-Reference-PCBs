@@ -50,6 +50,23 @@ PrefsVaultGUID=
 PrefsRevisionGUID=
 
 [Document1]
+DocumentPath=..\..\Shared Libraries\APSS Connectors.SchLib
+AnnotationEnabled=1
+AnnotateStartValue=1
+AnnotationIndexControlEnabled=0
+AnnotateSuffix=
+AnnotateScope=All
+AnnotateOrder=-1
+DoLibraryUpdate=1
+DoDatabaseUpdate=1
+ClassGenCCAutoEnabled=1
+ClassGenCCAutoRoomEnabled=0
+ClassGenNCAutoScope=None
+DItemRevisionGUID=
+GenerateClassCluster=0
+DocumentUniqueId=FVFWZRJI
+
+[Document2]
 DocumentPath=Libraries\EceParts.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -66,7 +83,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=QPJRBGQY
 
-[Document2]
+[Document3]
 DocumentPath=Libraries\EceParts.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -83,7 +100,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=PEDECDXI
 
-[Document3]
+[Document4]
 DocumentPath=Output_Job_File.OutJob
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -100,7 +117,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document4]
+[Document5]
 DocumentPath=outjob.OutJob
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -117,7 +134,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document5]
+[Document6]
 DocumentPath=Libraries\SSQ-105-03-X-S\SAMTEC_SSQ-105-03-S-S.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -134,7 +151,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=RIAJWWFN
 
-[Document6]
+[Document7]
 DocumentPath=Libraries\SSQ-105-03-X-S\SSQ-105-03-S-S.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -151,7 +168,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=IIXXSXBJ
 
-[Document7]
+[Document8]
 DocumentPath=Beacon.PcbDoc
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -168,7 +185,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=RTLHNWDF
 
-[Document8]
+[Document9]
 DocumentPath=Beacon.SchDoc
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -185,7 +202,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=VINOEROT
 
-[Document9]
+[Document10]
 DocumentPath=Libraries\LORA127X-C1\LORA127X-C1.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -202,7 +219,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=VITDHXFU
 
-[Document10]
+[Document11]
 DocumentPath=Libraries\LORA127X-C1\LORA127X-C1.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -219,7 +236,24 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=LANPNGXB
 
-[Document11]
+[Document12]
+DocumentPath=..\..\Shared Libraries\APSS Connectors.PcbLib
+AnnotationEnabled=1
+AnnotateStartValue=1
+AnnotationIndexControlEnabled=0
+AnnotateSuffix=
+AnnotateScope=All
+AnnotateOrder=-1
+DoLibraryUpdate=1
+DoDatabaseUpdate=1
+ClassGenCCAutoEnabled=1
+ClassGenCCAutoRoomEnabled=0
+ClassGenNCAutoScope=None
+DItemRevisionGUID=
+GenerateClassCluster=0
+DocumentUniqueId=TFWWLNVH
+
+[Document13]
 DocumentPath=Libraries\CD-PA1616D\CD-PA1616D.IntLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -236,7 +270,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document12]
+[Document14]
 DocumentPath=Libraries\CMT-8504-100-SMT-TR\CMT-8504-100-SMT-TR.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -253,7 +287,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=WJVYOTHO
 
-[Document13]
+[Document15]
 DocumentPath=Libraries\CMT-8504-100-SMT-TR\XDCR_CMT-8504-100-SMT-TR.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -270,7 +304,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=HJUXHIHW
 
-[Document14]
+[Document16]
 DocumentPath=Libraries\SSQ-104-02-S-S\SSQ-104-02-S-S.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -287,7 +321,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document15]
+[Document17]
 DocumentPath=Libraries\SSQ-104-02-S-S\SSQ-104-02-S-S.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -304,7 +338,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=VSXFFMDE
 
-[Document16]
+[Document18]
 DocumentPath=..\..\Shared Libraries\APSS Generic Components.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -321,7 +355,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=CEPVHXXP
 
-[Document17]
+[Document19]
 DocumentPath=..\..\Shared Libraries\APSS Generic Components.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -338,7 +372,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=PLQBJHHT
 
-[Document18]
+[Document20]
 DocumentPath=..\..\Shared Libraries\APSS Prototype Parts.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -355,7 +389,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document19]
+[Document21]
 DocumentPath=..\..\Shared Libraries\APSS Prototype Parts.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -372,7 +406,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=XCKFJLIN
 
-[Document20]
+[Document22]
 DocumentPath=74LVC244APW_118\74LVC244APW_118\SOP65P640X110-20N.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -389,7 +423,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document21]
+[Document23]
 DocumentPath=74LVC244APW_118\74LVC244APW_118\74LVC244APW,118.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
