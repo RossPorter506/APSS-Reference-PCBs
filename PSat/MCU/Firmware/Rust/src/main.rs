@@ -1,15 +1,16 @@
 #![no_main]
 #![no_std]
 
+// External imports
 use arrayvec::ArrayString;
 use embedded_hal::delay::DelayNs;
 use gps::GgaParseError;
-// External imports
 use msp430_rt::entry;
 
 // Internal modules
 mod pin_mappings { include!("pin_mappings_v2_0.rs"); } // Import 'pin_mappings_v2_0' as 'pin_mappings'
 mod board;
+mod imu;
 mod serial;
 mod panic_handler;
 mod lora;

@@ -14,7 +14,7 @@ use msp430fr2x5x_hal::{
 use embedded_hal::digital::{OutputPin, StatefulOutputPin};
 use embedded_hal_bus::i2c::RefCellDevice as I2cRefCellDevice;
 use static_cell::StaticCell;
-use crate::{gps::Gps, lora::Radio, pin_mappings::*, println};
+use crate::{gps::Gps, imu::Imu, lora::Radio, pin_mappings::*, println};
 
 
 pub type SharedI2c = I2cRefCellDevice<'static, SensorI2c>;
@@ -26,6 +26,7 @@ pub struct Board {
     pub delay: SysDelay,
     pub gps: Gps,
     pub i2c: SharedI2c,
+    pub imu: Imu<SharedI2c>,
     pub adc: Adc,
     pub radio: Radio,
     pub gpio: Gpio,
@@ -110,7 +111,11 @@ pub fn configure() -> Board {
     used.bmp390_adr.set_low().ok();
     let config = bmp390::Configuration::default();
     let barometer = Bmp390::try_new(I2cRefCellDevice::new(i2c_ref), bmp390::Address::Down, delay, &config).unwrap(); // TODO: unwrap
-    Board {barometer, delay, gps, radio, i2c: I2cRefCellDevice::new(i2c_ref), adc, gpio, timer_b0}
+
+    used.imu_ad0.set_low().ok();
+    let imu = Imu::new(I2cRefCellDevice::new(i2c_ref), icm42670::Address::Primary).unwrap(); // TODO: unwrap
+
+    Board {barometer, delay, gps, radio, i2c: I2cRefCellDevice::new(i2c_ref), adc, gpio, timer_b0, imu}
 }
 
 /// The RGB LEDs are active low, which can be a little confusing. A helper struct to reduce cognitive load.
@@ -179,7 +184,6 @@ pub struct Gpio {
     pub pin6_0: Pin<P6, Pin0, Input<Floating>>,
     pub pin6_1: Pin<P6, Pin1, Input<Floating>>,
     pub pin6_3: Pin<P6, Pin3, Input<Floating>>,
-    pub pin6_4: Pin<P6, Pin4, Input<Floating>>,
     pub pin6_5: Pin<P6, Pin5, Input<Floating>>,
     pub pin6_6: Pin<P6, Pin6, Input<Floating>>,
     pub pin6_7: Pin<P6, Pin7, Input<Floating>>,
@@ -227,8 +231,10 @@ impl Gpio {
 
         let bmp390_adr = port6.pin2.to_output();
 
+        let imu_ad0 = port6.pin4.to_output();
+
         // Pins consumed by other perihperals
-        let used = ConsumedPins {mosi, miso, sclk, lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, debug_tx_pin, i2c_scl_pin, i2c_sda_pin, bmp390_adr};
+        let used = ConsumedPins {mosi, miso, sclk, lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, debug_tx_pin, i2c_scl_pin, i2c_sda_pin, bmp390_adr, imu_ad0};
 
         let pin1_0 = port1.pin0;
         let pin1_1 = port1.pin1;
@@ -260,7 +266,6 @@ impl Gpio {
         let pin6_0 = port6.pin0;
         let pin6_1 = port6.pin1;
         let pin6_3 = port6.pin3;
-        let pin6_4 = port6.pin4;
         let pin6_5 = port6.pin5;
         let pin6_6 = port6.pin6;
         let pin6_7 = port6.pin7;
@@ -277,7 +282,7 @@ impl Gpio {
             pin3_4, pin3_5, pin3_6, pin3_7,
             pin4_0,
             pin5_1,
-            pin6_0, pin6_1, pin6_3, pin6_4, pin6_5, pin6_6, pin6_7,
+            pin6_0, pin6_1, pin6_3, pin6_5, pin6_6, pin6_7,
         };
 
         (gpio, used)
@@ -297,4 +302,5 @@ struct ConsumedPins {
     i2c_sda_pin:    I2cSdaPin,
     i2c_scl_pin:    I2cSclPin,
     bmp390_adr:     Bmp390AdrPin,
+    imu_ad0:        ImuAdrPin,
 }

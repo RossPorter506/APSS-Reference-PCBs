@@ -22,6 +22,8 @@ portable-atomic = "1.11"
 
 bmp390 = {version = "0.4", features = ["sync"]}
 
+icm42670 = "0.2"
+
 arrayvec = {version = "0.7", default-features = false }
 static_cell = {version = "2.1"}
 fixed = "1.29"

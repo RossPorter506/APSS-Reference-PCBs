@@ -45,5 +45,6 @@ pub type Enable1v8Pin       = Pin<P3, Pin2, Output>;
 pub type Enable5vPin        = Pin<P3, Pin3, Output>;
 
 pub type Bmp390AdrPin       = Pin<P6, Pin2, Output>;
+pub type ImuAdrPin          = Pin<P6, Pin4, Output>;
 pub type I2cEusci           = E_USCI_B0;
 pub type SensorI2c          = I2cBus<E_USCI_B0>;
