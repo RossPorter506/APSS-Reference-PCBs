@@ -100,62 +100,6 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[GeneratedDocument1]
-DocumentPath=Fabrication Files\NC Drill\PCB_Project.DRR
-DItemRevisionGUID=
-
-[GeneratedDocument2]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.EXTREP
-DItemRevisionGUID=
-
-[GeneratedDocument3]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GBL
-DItemRevisionGUID=
-
-[GeneratedDocument4]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GBO
-DItemRevisionGUID=
-
-[GeneratedDocument5]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GBP
-DItemRevisionGUID=
-
-[GeneratedDocument6]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GBS
-DItemRevisionGUID=
-
-[GeneratedDocument7]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GKO
-DItemRevisionGUID=
-
-[GeneratedDocument8]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GTL
-DItemRevisionGUID=
-
-[GeneratedDocument9]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GTO
-DItemRevisionGUID=
-
-[GeneratedDocument10]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GTP
-DItemRevisionGUID=
-
-[GeneratedDocument11]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.GTS
-DItemRevisionGUID=
-
-[GeneratedDocument12]
-DocumentPath=Fabrication Files\NC Drill\PCB_Project.LDP
-DItemRevisionGUID=
-
-[GeneratedDocument13]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.REP
-DItemRevisionGUID=
-
-[GeneratedDocument14]
-DocumentPath=Fabrication Files\Gerber\PCB_Project.RUL
-DItemRevisionGUID=
-
 [Parameter1]
 Name=BoardRevision
 Value=
