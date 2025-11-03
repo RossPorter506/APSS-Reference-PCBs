@@ -1,4 +1,4 @@
-﻿[Design]
+[Design]
 Version=1.0
 HierarchyMode=2
 ChannelRoomNamingStyle=0
@@ -563,8 +563,8 @@ DocumentPath=Project Outputs for PSat Beacon\Design Rule Check - Beacon.html
 DItemRevisionGUID=
 
 [Parameter1]
-Name=BoardRevision
-Value=2.0.3
+Name=Project
+Value=PSAT
 
 [Parameter2]
 Name=Designer
@@ -575,8 +575,8 @@ Name=DesignName
 Value=Beacon
 
 [Parameter4]
-Name=Project
-Value=PSAT
+Name=BoardRevision
+Value=2.1.0
 
 [Configuration1]
 Name=Sources
