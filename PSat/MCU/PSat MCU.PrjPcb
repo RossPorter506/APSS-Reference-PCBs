@@ -84,23 +84,6 @@ GenerateClassCluster=0
 DocumentUniqueId=PEDECDXI
 
 [Document3]
-DocumentPath=Output_Job_File.OutJob
-AnnotationEnabled=1
-AnnotateStartValue=1
-AnnotationIndexControlEnabled=0
-AnnotateSuffix=
-AnnotateScope=All
-AnnotateOrder=-1
-DoLibraryUpdate=1
-DoDatabaseUpdate=1
-ClassGenCCAutoEnabled=1
-ClassGenCCAutoRoomEnabled=0
-ClassGenNCAutoScope=None
-DItemRevisionGUID=
-GenerateClassCluster=0
-DocumentUniqueId=
-
-[Document4]
 DocumentPath=outjob.OutJob
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -117,7 +100,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document5]
+[Document4]
 DocumentPath=Libraries\SSQ-105-03-X-S\SAMTEC_SSQ-105-03-S-S.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -134,7 +117,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=RIAJWWFN
 
-[Document6]
+[Document5]
 DocumentPath=Libraries\SSQ-105-03-X-S\SSQ-105-03-S-S.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -151,7 +134,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=IIXXSXBJ
 
-[Document7]
+[Document6]
 DocumentPath=MCU.SchDoc
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -168,7 +151,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=VINOEROT
 
-[Document8]
+[Document7]
 DocumentPath=Libraries\MSP430.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -185,7 +168,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document9]
+[Document8]
 DocumentPath=Libraries\MSP430.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -200,9 +183,9 @@ ClassGenCCAutoRoomEnabled=1
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=NIFQXSHU
+DocumentUniqueId=
 
-[Document10]
+[Document9]
 DocumentPath=Libraries\SSQ-104-02-S-S\Imported SSQ-104-02-S-S.lia\SSQ-104-02-S-S.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -219,7 +202,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document11]
+[Document10]
 DocumentPath=Libraries\SSQ-104-02-S-S\Imported SSQ-104-02-S-S.lia\SSQ-104-02-S-S.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -234,9 +217,9 @@ ClassGenCCAutoRoomEnabled=1
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=VSXFFMDE
+DocumentUniqueId=
 
-[Document12]
+[Document11]
 DocumentPath=MCU.PcbDoc
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -253,7 +236,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=RTLHNWDF
 
-[Document13]
+[Document12]
 DocumentPath=..\..\Shared Libraries\APSS Prototype Parts.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -270,7 +253,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document14]
+[Document13]
 DocumentPath=..\..\Shared Libraries\APSS Prototype Parts.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -287,7 +270,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=XCKFJLIN
 
-[Document15]
+[Document14]
 DocumentPath=..\..\Shared Libraries\APSS Generic Components.PcbLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -304,7 +287,7 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=
 
-[Document16]
+[Document15]
 DocumentPath=..\..\Shared Libraries\APSS Generic Components.SchLib
 AnnotationEnabled=1
 AnnotateStartValue=1
@@ -319,238 +302,82 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=PLQBJHHT
+DocumentUniqueId=
 
 [GeneratedDocument1]
-DocumentPath=BOM\DesignName-BoardRevision-BOM.xlsx
-DItemRevisionGUID=
-
-[GeneratedDocument2]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.EXTREP
-DItemRevisionGUID=
-
-[GeneratedDocument3]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GBL
-DItemRevisionGUID=
-
-[GeneratedDocument4]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GBO
-DItemRevisionGUID=
-
-[GeneratedDocument5]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GBP
-DItemRevisionGUID=
-
-[GeneratedDocument6]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GBS
-DItemRevisionGUID=
-
-[GeneratedDocument7]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GD1
-DItemRevisionGUID=
-
-[GeneratedDocument8]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GG1
-DItemRevisionGUID=
-
-[GeneratedDocument9]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GKO
-DItemRevisionGUID=
-
-[GeneratedDocument10]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GTL
-DItemRevisionGUID=
-
-[GeneratedDocument11]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GTO
-DItemRevisionGUID=
-
-[GeneratedDocument12]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GTP
-DItemRevisionGUID=
-
-[GeneratedDocument13]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.GTS
-DItemRevisionGUID=
-
-[GeneratedDocument14]
-DocumentPath=Fabrication Files\Gerber\DesignName-BoardRevision-Gerber.RUL
-DItemRevisionGUID=
-
-[GeneratedDocument15]
-DocumentPath=Fabrication Files\NC Drill\DesignName-BoardRevision-NC Drill.DRR
-DItemRevisionGUID=
-
-[GeneratedDocument16]
-DocumentPath=Fabrication Files\NC Drill\DesignName-BoardRevision-NC Drill.TXT
-DItemRevisionGUID=
-
-[GeneratedDocument17]
-DocumentPath=Fabrication Files\Pick Place\DesignName-BoardRevision-Pick Place.txt
-DItemRevisionGUID=
-
-[GeneratedDocument18]
 DocumentPath=Project Outputs for PSat MCU\Design Rule Check - MCU.html
 DItemRevisionGUID=
 
-[GeneratedDocument19]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.EXTREP
-DItemRevisionGUID=
-
-[GeneratedDocument20]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GBL
-DItemRevisionGUID=
-
-[GeneratedDocument21]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GBO
-DItemRevisionGUID=
-
-[GeneratedDocument22]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GBP
-DItemRevisionGUID=
-
-[GeneratedDocument23]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GBS
-DItemRevisionGUID=
-
-[GeneratedDocument24]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GD1
-DItemRevisionGUID=
-
-[GeneratedDocument25]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GG1
-DItemRevisionGUID=
-
-[GeneratedDocument26]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GKO
-DItemRevisionGUID=
-
-[GeneratedDocument27]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GTL
-DItemRevisionGUID=
-
-[GeneratedDocument28]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GTO
-DItemRevisionGUID=
-
-[GeneratedDocument29]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GTP
-DItemRevisionGUID=
-
-[GeneratedDocument30]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.GTS
-DItemRevisionGUID=
-
-[GeneratedDocument31]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.REP
-DItemRevisionGUID=
-
-[GeneratedDocument32]
-DocumentPath=.\Fabrication Files\Gerber\MCU-2.0.5-Gerber.RUL
-DItemRevisionGUID=
-
-[GeneratedDocument33]
-DocumentPath=.\Fabrication Files\NC Drill\MCU-2.0.5-NC Drill.DRR
-DItemRevisionGUID=
-
-[GeneratedDocument34]
-DocumentPath=.\Fabrication Files\NC Drill\MCU-2.0.5-NC Drill.LDP
-DItemRevisionGUID=
-
-[GeneratedDocument35]
-DocumentPath=.\Fabrication Files\NC Drill\MCU-2.0.5-NC Drill.TXT
-DItemRevisionGUID=
-
-[GeneratedDocument36]
-DocumentPath=.\Fabrication Files\Pick Place\MCU-2.0.5-Pick Place.txt
-DItemRevisionGUID=
-
-[GeneratedDocument37]
+[GeneratedDocument2]
 DocumentPath=Project Outputs for PSat MCU\NC Drill\MCU.DRR
 DItemRevisionGUID=
 
-[GeneratedDocument38]
+[GeneratedDocument3]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.EXTREP
 DItemRevisionGUID=
 
-[GeneratedDocument39]
+[GeneratedDocument4]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GBL
 DItemRevisionGUID=
 
-[GeneratedDocument40]
+[GeneratedDocument5]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GBO
 DItemRevisionGUID=
 
-[GeneratedDocument41]
+[GeneratedDocument6]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GBP
 DItemRevisionGUID=
 
-[GeneratedDocument42]
+[GeneratedDocument7]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GBS
 DItemRevisionGUID=
 
-[GeneratedDocument43]
+[GeneratedDocument8]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GD1
 DItemRevisionGUID=
 
-[GeneratedDocument44]
+[GeneratedDocument9]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GG1
 DItemRevisionGUID=
 
-[GeneratedDocument45]
+[GeneratedDocument10]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GKO
 DItemRevisionGUID=
 
-[GeneratedDocument46]
+[GeneratedDocument11]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GTL
 DItemRevisionGUID=
 
-[GeneratedDocument47]
+[GeneratedDocument12]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GTO
 DItemRevisionGUID=
 
-[GeneratedDocument48]
+[GeneratedDocument13]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GTP
 DItemRevisionGUID=
 
-[GeneratedDocument49]
+[GeneratedDocument14]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.GTS
 DItemRevisionGUID=
 
-[GeneratedDocument50]
+[GeneratedDocument15]
 DocumentPath=Project Outputs for PSat MCU\NC Drill\MCU.LDP
 DItemRevisionGUID=
 
-[GeneratedDocument51]
+[GeneratedDocument16]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.REP
 DItemRevisionGUID=
 
-[GeneratedDocument52]
+[GeneratedDocument17]
 DocumentPath=Project Outputs for PSat MCU\Gerber\MCU.RUL
 DItemRevisionGUID=
 
-[GeneratedDocument53]
+[GeneratedDocument18]
 DocumentPath=Project Outputs for PSat MCU\NC Drill\MCU.TXT
 DItemRevisionGUID=
 
 [Parameter1]
-Name=Project
-Value=PSAT
-
-[Parameter2]
-Name=DesignName
-Value=MCU
-
-[Parameter3]
-Name=Designer
-Value=Ross P
-
-[Parameter4]
 Name=version
-Value=2.0.5
-
-[Parameter5]
-Name=BoardRevision
 Value=2.0.5
 
 [Configuration1]
@@ -671,11 +498,21 @@ OutputName20=WireList Netlist
 OutputDocumentPath20=
 OutputVariantName20=
 OutputDefault20=0
-OutputType21=XSpiceNetlist
-OutputName21=XSpice Netlist
+OutputType21=SIMetrixNetlist
+OutputName21=SIMetrix
 OutputDocumentPath21=
 OutputVariantName21=
 OutputDefault21=0
+OutputType22=SIMPLISNetlist
+OutputName22=SIMPLIS
+OutputDocumentPath22=
+OutputVariantName22=
+OutputDefault22=0
+OutputType23=XSpiceNetlist
+OutputName23=XSpice Netlist
+OutputDocumentPath23=
+OutputVariantName23=
+OutputDefault23=0
 
 [OutputGroup2]
 Name=Simulator Outputs
@@ -687,6 +524,16 @@ OutputName1=Mixed Sim
 OutputDocumentPath1=
 OutputVariantName1=
 OutputDefault1=0
+OutputType2=SIMetrixSimulation
+OutputName2=SIMetrix
+OutputDocumentPath2=
+OutputVariantName2=
+OutputDefault2=0
+OutputType3=SIMPLISSimulation
+OutputName3=SIMPLIS
+OutputDocumentPath3=
+OutputVariantName3=
+OutputDefault3=0
 
 [OutputGroup3]
 Name=Documentation Outputs
@@ -1210,7 +1057,6 @@ Type147=1
 Type148=1
 Type149=1
 Type150=1
-Type151=1
 
 [Difference Levels]
 Type1=1
@@ -1294,7 +1140,6 @@ Type78=1
 Type79=1
 Type80=1
 Type81=1
-Type82=1
 
 [Electrical Rules Check]
 Type1=1
@@ -1451,13 +1296,6 @@ Type151=2
 Type152=1
 Type153=1
 Type154=0
-Type155=0
-Type156=0
-Type157=0
-Type158=0
-Type159=0
-Type160=0
-Type161=0
 
 [ERC Connection Matrix]
 L1=NNNNNNNNNNNWNNNWW
