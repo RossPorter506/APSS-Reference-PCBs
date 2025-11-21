@@ -113,13 +113,13 @@ impl<PIN: OutputPin+ToggleableOutputPin> Led<PIN> {
         Self(pin)
     }
     pub fn turn_on(&mut self) {
-        self.0.set_low().ok();
+        self.0.set_low();
     }
     pub fn turn_off(&mut self) {
-        self.0.set_high().ok();
+        self.0.set_high();
     }
     pub fn toggle(&mut self) {
-        self.0.toggle().ok();
+        self.0.toggle();
     }
 }
 pub type RedLed     = Led<RedLedPin>;
@@ -205,14 +205,14 @@ impl Gpio {
         
         let mut lora_reset = port5.pin2.to_output(); // Not actually connected...
         let mut lora_cs = port4.pin4.to_output();
-        lora_reset.set_high().ok();
-        lora_cs.set_high().ok();
+        lora_reset.set_high();
+        lora_cs.set_high();
         let lora_irq = port5.pin3;
 
         let gps_tx_pin = port4.pin3.to_alternate1();
         let gps_rx_pin = port4.pin2.to_alternate1();
         let mut gps_en = port4.pin1.to_output(); // active low
-        gps_en.set_low().ok();
+        gps_en.set_low();
 
         let debug_tx_pin = port1.pin7.to_alternate1();
 
@@ -237,9 +237,9 @@ impl Gpio {
         let power_good_1v8 = port3.pin0.pullup();
         let power_good_3v3 = port3.pin1.pullup();
         let mut enable_1v8 = port3.pin2.to_output();
-        enable_1v8.set_low().ok();
+        enable_1v8.set_low();
         let mut enable_5v = port3.pin3.to_output();
-        enable_5v.set_low().ok();
+        enable_5v.set_low();
         let pin3_4 = port3.pin4;
         let pin3_5 = port3.pin5;
         let pin3_6 = port3.pin6;

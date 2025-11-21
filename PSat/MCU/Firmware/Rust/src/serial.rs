@@ -30,7 +30,7 @@ impl core::fmt::Write for PrintableSerial {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for char in s.chars() {
             use embedded_hal::serial::Write;
-            nb::block!( self.0.write(char as u8) ).ok(); // The cast to u8 assumes ASCII-only characters
+            nb::block!( self.0.write(char as u8) ); // The cast to u8 assumes ASCII-only characters
         }
         Ok(())
     }
