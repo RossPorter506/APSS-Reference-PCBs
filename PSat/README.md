@@ -15,15 +15,18 @@ There are several boards that can be mixed and matched according to your needs. 
 
 ### Power Supply Unit (PSU)
 The PSU slice is responsible for both charging the Lithium battery that powers your PSat, but also providing usable power rails for all your other devices. The board provides two step-down converters (default 1.8V and 3.3V) and one step-up converter (default 5V), all user-configurable during assembly. The battery can be charged using a USB-C or micro USB cable.
+See the documentation in the PSU folder for more information.
 
 ### Microcontroller (MCU)
 The brains of the operation. A simple breakout board with programming header attached - never get stuck trying to program your microcontroller again! UART, SPI and I2C buses (among other pins) are broken out onto additional, optional stack headers for communication with other devices or slices.
+See the readme in the MCU folder for more information.
 
 ### Beacon
 Lost your PSat? Not any more. The beacon slice provides three locator devices:
  - A fully automatic audio beeper. This beeper produces a sharp chirp (100dB from 10cm away) every couple of seconds, which should be audible from about 50-100m away.
  - A 915MHz LoRa radio module. No radio license necessary, this radio can be used by a microcontroller to transmit a signal that you and a base station can use to triangulate the location of your payload. With a theoretical range of up to 2km (or 20km with a directional antenna on the base station), this radio is always an option. 
  - A self-contained GPS module. Use in combination with the LoRa radio and a microcontroller to broadcast your exact payload's GPS coordinates.
+See the readme in the Beacon folder for more information.
 
 ## Versioning
 This project uses a form of semantic versioning to manage board interoperability:
