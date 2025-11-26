@@ -217,7 +217,7 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=NGLTGAHM
 
 [Document11]
 DocumentPath=Libraries\B2B-PH-K-S_LF__SN_\B2B-PH-K-S(LF)(SN).SchLib
@@ -234,7 +234,7 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=UGJANXDI
 
 [Document12]
 DocumentPath=Libraries\B2B-PH-K-S_LF__SN_\JST_B2B-PH-K-S(LF)(SN).PcbLib
@@ -268,7 +268,7 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=XIWPLSUO
 
 [Document14]
 DocumentPath=Libraries\BQ21040DBVR\SOT95P280X145-6N.PcbLib
@@ -319,7 +319,7 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=BZEFMLKC
 
 [Document17]
 DocumentPath=Main.SchDoc
@@ -354,6 +354,23 @@ ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=YXYNDUDW
+
+[Document19]
+DocumentPath=MBC PCB.PcbDoc
+AnnotationEnabled=1
+AnnotateStartValue=1
+AnnotationIndexControlEnabled=0
+AnnotateSuffix=
+AnnotateScope=All
+AnnotateOrder=-1
+DoLibraryUpdate=1
+DoDatabaseUpdate=1
+ClassGenCCAutoEnabled=1
+ClassGenCCAutoRoomEnabled=0
+ClassGenNCAutoScope=None
+DItemRevisionGUID=
+GenerateClassCluster=0
+DocumentUniqueId=CLQFIAOC
 
 [Configuration1]
 Name=Sources
@@ -1314,10 +1331,16 @@ NetClassManualEnabled=1
 NetClassSeparateForBusSections=0
 
 [LibraryUpdateOptions]
-SelectedOnly=0
+SelectedOnly=1
 UpdateVariants=1
 UpdateToLatestRevision=1
 PartTypes=0
+ComponentLibIdentifierKind0=Library Name And Type
+ComponentLibraryIdentifier0=BQ21040DBVR.IntLib
+ComponentDesignItemID0=BQ21040DBVR
+ComponentSymbolReference0=BQ21040DBVR
+ComponentUpdate0=1
+ComponentIsDeviceSheet0=0
 FullReplace=1
 UpdateDesignatorLock=1
 UpdatePartIDLock=1
@@ -1331,6 +1354,31 @@ RemoveParameters=0
 AddModels=1
 RemoveModels=1
 UpdateCurrentModels=1
+ParameterName0=Comment
+ParameterUpdate0=1
+ParameterName1=Component Kind
+ParameterUpdate1=1
+ParameterName2=Description
+ParameterUpdate2=1
+ParameterName3=Library Reference
+ParameterUpdate3=1
+ParameterName4=MF
+ParameterUpdate4=1
+ParameterName5=MF Part No.
+ParameterUpdate5=1
+ParameterName6=Package
+ParameterUpdate6=1
+ParameterName7=Supplier 1
+ParameterUpdate7=1
+ParameterName8=Supplier 1 Part No.
+ParameterUpdate8=1
+ParameterName9=Value
+ParameterUpdate9=1
+ModelTypeGroup0=PCBLIB
+ModelTypeUpdate0=1
+ModelType0=PCBLIB
+ModelName0=SOT95P280X145-6N
+ModelUpdate0=1
 
 [DatabaseUpdateOptions]
 SelectedOnly=0
