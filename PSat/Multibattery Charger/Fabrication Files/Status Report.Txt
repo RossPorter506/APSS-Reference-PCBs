@@ -1,0 +1,23 @@
+Output: Gerber Files
+Type  : Gerber
+From  : PCB Document [MBC PCB.PcbDoc]
+   Generated File[DesignName-BoardRevision-Gerber.GTO]
+   Generated File[DesignName-BoardRevision-Gerber.GTP]
+   Generated File[DesignName-BoardRevision-Gerber.GTS]
+   Generated File[DesignName-BoardRevision-Gerber.GTL]
+   Generated File[DesignName-BoardRevision-Gerber.GBL]
+   Generated File[DesignName-BoardRevision-Gerber.GBS]
+   Generated File[DesignName-BoardRevision-Gerber.GBP]
+   Generated File[DesignName-BoardRevision-Gerber.GBO]
+   Generated File[DesignName-BoardRevision-Gerber.GM5]
+   Generated File[DesignName-BoardRevision-Gerber.GD1]
+   Generated File[DesignName-BoardRevision-Gerber.GG1]
+   Generated File[DesignName-BoardRevision-Gerber.RUL]
+   Generated File[DesignName-BoardRevision-Gerber.EXTREP]
+   Generated File[DesignName-BoardRevision-Gerber.REP]
+
+
+Files Generated   : 14
+Documents Printed : 0
+
+Finished Output Generation At 3:30:29 pm On 2/02/2026

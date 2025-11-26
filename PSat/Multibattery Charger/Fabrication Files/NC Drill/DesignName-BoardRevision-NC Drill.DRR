@@ -1,0 +1,18 @@
+----------------------------------------------------------------------------------------------------------------------------------
+NCDrill File Report For: MBC PCB.PcbDoc   2/02/2026  3:30:27 pm
+----------------------------------------------------------------------------------------------------------------------------------
+
+Layer Pair : Top Layer to Bottom Layer
+ASCII RoundHoles File : DesignName-BoardRevision-NC Drill-RoundHoles.TXT
+ASCII SlotHoles File : DesignName-BoardRevision-NC Drill-SlotHoles.TXT
+
+Tool       Hole Size               Hole Tolerance               Hole Type       Hole Count   Plated         Tool Travel
+----------------------------------------------------------------------------------------------------------------------------------
+T1      0.3mm (12mil)                                             Round             57        PTH        390.20mm (15.36inch)
+T2      0.6mm (24mil)                                             Slot              4         PTH        38.14mm (1.50inch)
+T3      0.8mm (31mil)                                             Round             12        PTH        160.15mm (6.31inch)
+T4      0.65mm (26mil)                                            Round             2         NPTH       5.78mm (0.23inch)
+----------------------------------------------------------------------------------------------------------------------------------
+Totals                                                                              75
+
+Total Processing Time (hh:mm:ss) : 00:00:00
