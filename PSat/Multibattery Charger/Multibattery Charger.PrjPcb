@@ -372,6 +372,10 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=CLQFIAOC
 
+[GeneratedDocument1]
+DocumentPath=Project Outputs for Multibattery Charger\Design Rule Check - MBC PCB.html
+DItemRevisionGUID=
+
 [Configuration1]
 Name=Sources
 ParameterCount=0
