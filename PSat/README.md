@@ -28,7 +28,7 @@ Lost your PSat? Not any more. The beacon slice provides three locator devices:
  - A self-contained GPS module. Use in combination with the LoRa radio and a microcontroller to broadcast your exact payload's GPS coordinates.
 See the readme in the Beacon folder for more information.
 
-## Versioning
+# Versioning
 This project uses a form of semantic versioning to manage board interoperability:
 ver X.Y.Z means version X, revision Y, patch Z.
 
@@ -45,3 +45,11 @@ PSU v1.0.0 <=/=> MCU v2.0.0
 MCU v2.0.0 <=> Beacon v2.1.0, with software changes
 
 MCU v2.2.0 <=> Beacon v2.2.37, with no software changes
+
+## v2.0.x Stack Pinout
+
+![alt text](Docs/v2.0pinout.drawio.png)
+
+## v2.1.x Stack Pinout
+
+![alt text](Docs/v2.1pinout.drawio.png)

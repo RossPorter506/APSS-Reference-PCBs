@@ -11,30 +11,11 @@ The MCU board uses three of the MSP's communication buses:
 - UCB0: Sensor I2C (exposed to stack)
 - UCB1: Sensor SPI (exposed to stack)
 
-### v2.0.x Stack Pinout
-```
-Top-down view:
-*MSP UCB1 GPIO / LoRa CS   |O O| *MSP GPIO
- MSP UCB1 SCK  / LoRa SCK  |O O| *MSP GPIO
- MSP UCB1 MOSI / LoRa MOSI |O O| MSP UCB0 SDA
- MSP UCB1 MISO / LoRa MISO |O O| MSP UCB0 SCL
-                           |---| 
-                       1V8 |O O| MSP GPIO / 1V8_PG
-                       3V3 |O O| MSP GPIO / 3V3_PG
-                       GND |O O| MSP GPIO / 1V8_EN
-                       5V0 |O O|          / 3V3_EN
-                       BAT |O O| MSP GPIO / 5V0_EN
-                           |---| 
-      MSP UCA1 Rx / GPS Tx |O O| *MSP ADC/PWM GPIO
-      MSP UCA1 Tx / GPS Rx |O O| *MSP ADC GPIO
-            *MSP UCA1 GPIO |O O| *MSP ADC GPIO
-            *MSP UCA1 GPIO |O O| *MSP GPIO / Beacon buzzer override
+![alt text](../Docs/v2.0pinout.drawio.png)
 
-* Not connected to the stack by default. The relevant solder jumper needs to be soldered closed.
+MCU inputs: MISO, GPS Tx
 
-Beacon outputs: MISO, GPS Tx
 MCU outputs: MOSI, SCK, LoRa CS, GPS Rx
-```
 
 # v2.1.x
 In addition to the contents of the v2.0.x board, the v2.1.x board also contains:
@@ -57,27 +38,8 @@ The MCU board uses all four of the MSP's communication buses:
 - UCB0: Sensor I2C (exposed to stack)
 - UCB1: Sensor SPI (exposed to stack)
 
-### v2.1.x Stack Pinout
-```
-Top-down view:
-MSP UCB1 GPIO / †LoRa CS   |O O| MSP GPIO / †GPS Reset
-MSP UCB1 SCK  / †LoRa SCK  |O O| MSP GPIO / †LoRa Reset
-MSP UCB1 MOSI / †LoRa MOSI |O O| MSP UCB0 SDA
-MSP UCB1 MISO / †LoRa MISO |O O| MSP UCB0 SCL
-                           |---| 
-                       1V8 |O O| MSP GPIO / 1V8_PG
-                       3V3 |O O| MSP GPIO / 3V3_PG
-                       GND |O O| MSP GPIO / 1V8_EN
-                       5V0 |O O| MSP GPIO / 3V3_EN
-                       BAT |O O| MSP GPIO / 5V0_EN
-                           |---| 
-     MSP UCA1 Rx / †GPS Tx |O O| MSP ADC/PWM GPIO
-     MSP UCA1 Tx / †GPS Rx |O O| MSP ADC GPIO
-          MSP GPIO / BCtl0 |O O| MSP ADC GPIO
-          MSP GPIO / BCtl1 |O O| MSP GPIO / Beacon buzzer override
+![alt text](../Docs/v2.1pinout.drawio.png)
 
-† Only connected to the stack if the beacon board is in manual mode.
+MCU inputs: MISO, GPS Tx
 
-Beacon outputs: MISO, GPS Tx
 MCU outputs: MOSI, SCK, LoRa CS, GPS Rx, GPS Reset, LoRa Reset
-```
