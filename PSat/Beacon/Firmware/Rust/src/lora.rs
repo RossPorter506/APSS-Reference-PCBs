@@ -3,39 +3,37 @@ use core::{cell::RefCell, time::Duration};
 
 use embedded_hal_bus::spi::RefCellDevice;
 use embedded_lora_rfm95::{error::{IoError, RxCompleteError, TxStartError}, lora::types::{Bandwidth, CodingRate, CrcMode, HeaderMode, Polarity, PreambleLength, SpreadingFactor, SyncWord}, rfm95::{self, Rfm95Driver}};
-use embedded_hal_compat::{eh1_0::delay::DelayNs, markers::ForwardOutputPin, Forward, ForwardCompat};
-use msp430fr2x5x_hal::delay::Delay;
+use msp430fr2x5x_hal::{delay::SysDelay, spi::Spi};
 use nb::Error::{WouldBlock, Other};
-use crate::{board::FwSpiBus, pin_mappings::{RadioCsPin, RadioResetPin}};
+use crate::pin_mappings::{RadioCsPin, RadioEusci, RadioResetPin};
 
 const LORA_FREQ_HZ: u32 = 915_000_000;
 pub use rfm95::RFM95_FIFO_SIZE;
 
-pub fn new(spi_ref: &'static RefCell<FwSpiBus>, cs_pin: RadioCsPin, reset_pin: RadioResetPin, delay: Delay) -> Radio {
-    let radio_spi: SPIDevice = RefCellDevice::new(spi_ref, cs_pin.forward(), crate::lora::DelayWrapper(delay)).unwrap();
-    let mut rfm95 = match Rfm95Driver::new(radio_spi, reset_pin.forward(), &mut DelayWrapper(delay)) {
+pub fn new(spi_ref: &'static RefCell<Spi<RadioEusci>>, cs_pin: RadioCsPin, reset_pin: RadioResetPin, delay: SysDelay) -> Radio {
+    let radio_spi: SPIDevice = RefCellDevice::new(spi_ref, cs_pin, delay).unwrap();
+    let mut rfm95 = match Rfm95Driver::new(radio_spi, reset_pin, delay) {
         Ok(rfm) => rfm,
         Err(_e) => panic!("Radio reports invalid silicon revision. Is the beacon connected?"),
     };
     
-    // 62.5kHz bandwidth, 4/5 coding rate, SF10 gives a bitrate of about 500bps.
+    // 125kHz bandwidth, 4/5 coding rate, SF8 gives a bitrate of about 3000bps.
     let lora_config = embedded_lora_rfm95::lora::config::Builder::builder()
-        .set_bandwidth(Bandwidth::B62_5) // lower bandwidth == longer range, but very low bandwidths can suffer from clock source tolerance issues
+        .set_bandwidth(Bandwidth::B125) // lower bandwidth == longer range, but very low bandwidths can suffer from clock source tolerance issues
         .set_coding_rate(CodingRate::C4_5) // Error correction lowers bitrate. Consider how electronically noisy the area might be.
-        .set_crc_mode(CrcMode::Disabled)
+        .set_crc_mode(CrcMode::Enabled)
         .set_frequency(LORA_FREQ_HZ.into())
         .set_header_mode(HeaderMode::Explicit)
         .set_polarity(Polarity::Normal)
         .set_preamble_length(PreambleLength::L8)
-        .set_spreading_factor(SpreadingFactor::S10) // High SF == Best range
+        .set_spreading_factor(SpreadingFactor::S8) // High SF == Best range
         .set_sync_word(SyncWord::PRIVATE);
     rfm95.set_config(&lora_config).unwrap();
 
     Radio{driver: rfm95}
 }
 
-type FwCsPin = Forward<RadioCsPin, ForwardOutputPin>;
-type SPIDevice = RefCellDevice<'static, FwSpiBus, FwCsPin, DelayWrapper>;
+type SPIDevice = RefCellDevice<'static, Spi<RadioEusci>, RadioCsPin, SysDelay>;
 type RFM95 = Rfm95Driver<SPIDevice>;
 /// Top-level interface for the radio module.
 pub struct Radio {
@@ -95,47 +93,20 @@ pub enum TxError {
     IoError,
 }
 
-use embedded_hal::blocking::delay::DelayMs;
-// The radio library uses a different version of embedded_hal, so we need to write some wrappers.
-pub struct DelayWrapper(Delay);
-impl DelayNs for DelayWrapper {
-    fn delay_ms(&mut self, ms: u32) {
-        if ms < (u16::MAX as u32) {
-            self.0.delay_ms(ms as u16);
-        }
-        else {
-            let times = ms/(u16::MAX as u32);
-
-            for _ in 0..times {
-                self.0.delay_ms(u16::MAX);
-            }
-            let remainder = ms - times*(u16::MAX as u32);
-            self.0.delay_ms(remainder as u16);
-        }
-    }
-    
-    fn delay_ns(&mut self, ns: u32) {
-        let ms = ns / 1_000_000;
-        self.0.delay_ms(ms as u16);
-    }
-}
-
 pub mod tests {
-    use embedded_hal::timer::CountDown;
     use embedded_lora_rfm95::error::RxCompleteError;
     use ufmt::uwrite;
 
     pub fn range_test_tx(mut board: crate::board::Board) -> ! {
         let mut current_time = Time::default();
-        board.timer_b0.start(msp430fr2x5x_hal::clock::REFOCLK); // 1 second timer
+        board.radio_delay_timer.start(msp430fr2x5x_hal::clock::REFOCLK); // 1 second timer
         board.radio.transmit_start(&time_to_bytes(&current_time)).unwrap();
         loop {
             // Sends at most one message per second.
-            if board.timer_b0.wait().is_ok() {
+            if board.radio_delay_timer.wait().is_ok() {
                 current_time.increment();
                 
                 if board.radio.transmit_is_complete().is_ok() {
-                    board.gpio.green_led.toggle();
                     board.radio.transmit_start(&time_to_bytes(&current_time)).unwrap();
                 }
             }
@@ -158,7 +129,7 @@ pub mod tests {
     pub fn range_test_rx(mut board: crate::board::Board) -> ! {
         let mut buf = [0u8; super::RFM95_FIFO_SIZE];
         let mut current_time = Time::default();
-        board.timer_b0.start(msp430fr2x5x_hal::clock::REFOCLK); // 1 second timer
+        board.radio_delay_timer.start(msp430fr2x5x_hal::clock::REFOCLK); // 1 second timer
         board.radio.recieve_start(None);
         loop {
             match board.radio.recieve_is_complete(&mut buf) {
@@ -168,11 +139,11 @@ pub mod tests {
                     let Ok(signal_strength) = board.radio.driver.get_packet_strength() else {continue};
                     let Ok(rssi) = board.radio.driver.get_packet_rssi() else {continue};
                     let Ok(snr) = board.radio.driver.get_packet_snr() else {continue};
-                    crate::println!("[{}] '{}', Strength: {}, RSSI: {}, SNR: {}", current_time, core::str::from_utf8(msg).unwrap(), signal_strength, rssi, snr);
+                    // crate::println!("[{}] '{}', Strength: {}, RSSI: {}, SNR: {}", current_time, core::str::from_utf8(msg).unwrap(), signal_strength, rssi, snr);
                     board.radio.recieve_start(None);
                 },
             }
-            if board.timer_b0.wait().is_ok() {
+            if board.radio_delay_timer.wait().is_ok() {
                 current_time.increment();
             }
         }
