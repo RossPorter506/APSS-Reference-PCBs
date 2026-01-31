@@ -6,11 +6,12 @@ use arrayvec::{ArrayString, ArrayVec};
 use msp430fr2x5x_hal::{
     clock::Smclk, 
     serial::{BitCount, BitOrder, Loopback, Parity, RecvError, SerialConfig, StopBits}};
-use embedded_hal::serial::Read;
 use ufmt::{derive::uDebug, uDisplay, uwrite};
 use crate::pin_mappings::{GpsEusci, GpsRx, GpsRxPin, GpsTx, GpsTxPin};
+use embedded_hal_nb::serial::Read;
 
-const NMEA_MESSAGE_MAX_LEN: usize = 82;
+pub const NMEA_MESSAGE_MAX_LEN: usize = 82;
+const GPS_BAUDRATE: u32 = 9600;
 
 pub struct Gps {
     tx: GpsTx,
@@ -26,7 +27,7 @@ impl Gps {
             StopBits::OneStopBit, 
             Parity::NoParity, 
             Loopback::NoLoop, 
-            9600)
+            GPS_BAUDRATE)
             .use_smclk(smclk)
             .split(tx_pin, rx_pin);
         Self {tx, rx, rx_started: false}
@@ -120,6 +121,63 @@ impl TryFrom<&ArrayString<NMEA_MESSAGE_MAX_LEN>> for GgaMessage {
         })
     }
 }
+impl GgaMessage {
+    /// Produce a string that represents the GPS data.
+    pub fn encode_string(&self) -> ArrayString<60> {
+        let num_sats = ArrayString::<3>::new();
+        match self.num_satellites {
+            0..=9 => ufmt::uwrite!(ufmt_utils::WriteAdapter(num_sats),"0{}", self.num_satellites).unwrap(),
+            10..  => ufmt::uwrite!(ufmt_utils::WriteAdapter(num_sats),"{}", self.num_satellites).unwrap()
+        };
+        let fix_type = match self.fix_type {
+            GpsFixType::None => 'N',
+            GpsFixType::Gps => 'G',
+            GpsFixType::DifferentialGps => 'D',
+        };
+        let (time, lat, long, alt) = (self.utc_time.clone(), self.latitude.clone(), self.longitude.clone(), self.altitude_msl);
+
+        let data_str = ArrayString::new();
+        ufmt::uwrite!(ufmt_utils::WriteAdapter(data_str), "#{} {}; {}; {}; {},{}; {}\n", crate::TEAM_ID + b'A', time, fix_type, num_sats.as_str(), lat, long, alt).unwrap();
+        data_str
+    }
+    /// Produce a binary-encoded byte array that represents the GPS data.
+    pub fn encode_binary(&self) -> [u8; 14] {
+        let mut bytes = [0;14];
+        const { assert!(crate::TEAM_ID < 32); } // 5 bits
+        let hours: u8 = self.utc_time.hours.clamp(0, 23); // 5 bits
+        let minutes: u8 = self.utc_time.minutes.clamp(0, 59); // 6 bits
+        let seconds: u8 = self.utc_time.seconds.clamp(0, 59); // 6 bits
+        let num_sats: u8 = self.num_satellites.clamp(0, 15); // 4 bits
+        let altitude: i32 = self.altitude_msl.decimetres.clamp(-0x7FFFF, 0x7FFFF); // 20 bits
+        let latitude: i32 = self.latitude.degrees as i32 * 10_000_000 + self.latitude.degrees_millionths as i32 * 100;
+        let longitude: i32 = self.longitude.degrees as i32 * 10_000_000 + self.longitude.degrees_millionths as i32 * 100;
+        let fix_ok: bool = self.fix_type != GpsFixType::None;
+        let is_dgps: bool = self.fix_type == GpsFixType::DifferentialGps;
+
+        // team_id | hours[5..2]
+        bytes[0]  = (crate::TEAM_ID << 3) | (self.utc_time.hours >> 2);
+
+        // hours[1..0] | minutes
+        bytes[1]  = ((hours & 0b11) << 6) | minutes;
+
+        // seconds | fix_ok | is_dgps
+        bytes[2]  = (seconds << 2) | ((fix_ok as u8) << 1) | (is_dgps as u8);
+
+        // num_sats | altitude[20..17]
+        bytes[3]  = (num_sats << 4) | (((altitude >> 16) & 0xF) as u8);
+
+        // altitude[16..0]
+        bytes[4..=5].copy_from_slice(&altitude.to_be_bytes()[2..=3]);
+
+        // latitude[32..0]
+        bytes[6..=9].copy_from_slice(&latitude.to_be_bytes());
+        
+        // longitude[32..0]
+        bytes[10..=13].copy_from_slice(&longitude.to_be_bytes());
+
+        bytes
+    }
+}
 
 pub enum GgaParseError {
     NoFix,
@@ -147,6 +205,7 @@ impl Debug for GgaParseError {
     }
 }
 
+#[derive(Debug, Clone)]
 /// A UTC timestamp
 pub struct UtcTime {
     pub hours: u8,
@@ -166,15 +225,15 @@ impl uDisplay for UtcTime {
         }
 
         match self.seconds {
-            0..10 =>  uwrite!(f, "0{}.", self.seconds)?,
-            10..  =>  uwrite!(f,  "{}.", self.seconds)?,
+            0..10 =>  uwrite!(f, "0{} UTC", self.seconds)?,
+            10..  =>  uwrite!(f,  "{} UTC", self.seconds)?,
         };
 
-        match self.millis {
-            0..10   => uwrite!(f, "00{} UTC", self.millis)?,
-            10..100 => uwrite!(f,  "0{} UTC", self.millis)?,
-            100..   => uwrite!(f,   "{} UTC", self.millis)?,
-        };
+        // match self.millis {
+        //     0..10   => uwrite!(f, "00{} UTC", self.millis)?,
+        //     10..100 => uwrite!(f,  "0{} UTC", self.millis)?,
+        //     100..   => uwrite!(f,   "{} UTC", self.millis)?,
+        // };
 
         Ok(())
     }
@@ -199,10 +258,11 @@ pub enum UtcError {
     ParseError(ParseIntError),
 }
 
+#[derive(Debug, Clone)]
 /// A degrees value, stored as a decimal fraction.
 pub struct Degrees {
-    degrees: i16,
-    degrees_millionths: u32,
+    pub degrees: i16,
+    pub degrees_millionths: u32,
 }
 impl uDisplay for Degrees {
     fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> Result<(), W::Error>
@@ -213,7 +273,7 @@ impl uDisplay for Degrees {
             leading_zeroes.push('0');
         }
 
-        uwrite!(f, "{}.{}{} deg", self.degrees, leading_zeroes.as_str(), self.degrees_millionths)
+        uwrite!(f, "{}.{}{}", self.degrees, leading_zeroes.as_str(), self.degrees_millionths)
     }
 }
 impl TryFrom<(&str, &str)> for Degrees {
@@ -278,8 +338,9 @@ impl TryFrom<&str> for GpsFixType{
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct Altitude{
-    decimetres: i32,
+    pub decimetres: i32,
 }
 impl TryFrom<&str> for Altitude {
     type Error = ParseIntError;
