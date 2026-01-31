@@ -1,0 +1,38 @@
+[package]
+name = "apss_mcu_pcb_firmware"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+msp430 = { version = "0.4.0", features = ["critical-section-single-core"] }
+msp430-rt = "0.4.0"
+msp430fr2355 = { version = "0.5.1", features = ["rt", "critical-section"] }
+msp430fr2x5x-hal = "0.4.1"
+
+embedded-hal = { version = "0.2.7", features = ["unproven"] }
+nb = "*"
+ufmt = "0.2"
+ufmt-utils = "0.2"
+
+embedded-hal-compat = "0.13"
+embedded-lora-rfm95 = "0.3"
+embedded-hal-bus = {version = "0.3", default-features = false, features = ["portable-atomic"]}
+portable-atomic = "1.11"
+
+arrayvec = {version = "0.7", default-features = false }
+static_cell = {version = "2.1"}
+fixed = "1.29"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = "z"
+strip = "debuginfo" # Replace with `strip = true` to make final executable smaller, but unable to analyze with `cargo bloat`.
+
+[profile.dev]
+opt-level = "s"
+codegen-units = 1
+debug = true
+
+[profile.dev.package."*"]
+opt-level = "z"
