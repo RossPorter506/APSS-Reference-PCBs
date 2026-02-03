@@ -576,7 +576,7 @@ Value=Beacon
 
 [Parameter4]
 Name=BoardRevision
-Value=2.1.0
+Value=2.1.1
 
 [Configuration1]
 Name=Sources
