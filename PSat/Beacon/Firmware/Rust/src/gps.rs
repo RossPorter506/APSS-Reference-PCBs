@@ -3,11 +3,12 @@
 use core::{fmt::Debug, num::ParseIntError};
 
 use arrayvec::{ArrayString, ArrayVec};
+use embedded_hal::digital::OutputPin;
 use msp430fr2x5x_hal::{
     clock::Smclk, 
     serial::{BitCount, BitOrder, Loopback, Parity, RecvError, SerialConfig, StopBits}};
 use ufmt::{derive::uDebug, uDisplay, uwrite};
-use crate::pin_mappings::{GpsEusci, GpsRx, GpsRxPin, GpsTx, GpsTxPin};
+use crate::pin_mappings::{GpsEnPin, GpsEusci, GpsRx, GpsRxPin, GpsTx, GpsTxPin};
 use embedded_hal_nb::serial::Read;
 
 pub const NMEA_MESSAGE_MAX_LEN: usize = 82;
@@ -17,9 +18,10 @@ pub struct Gps {
     tx: GpsTx,
     rx: GpsRx,
     rx_started: bool,
+    gps_en: GpsEnPin,
 }
 impl Gps {
-    pub fn new(eusci_reg: GpsEusci, smclk: &Smclk, tx_pin: GpsTxPin, rx_pin: GpsRxPin) -> Self {
+    pub fn new(eusci_reg: GpsEusci, smclk: &Smclk, tx_pin: GpsTxPin, rx_pin: GpsRxPin, gps_en: GpsEnPin) -> Self {
         // Configure UART peripheral
         let (tx, rx) = SerialConfig::new(eusci_reg, 
             BitOrder::LsbFirst, 
@@ -30,7 +32,7 @@ impl Gps {
             GPS_BAUDRATE)
             .use_smclk(smclk)
             .split(tx_pin, rx_pin);
-        Self {tx, rx, rx_started: false}
+        Self {tx, rx, gps_en, rx_started: false}
     } 
 
     /// Slowly builds up a message byte by byte by checking the serial buffer. Call this function repeatedly until it returns `Ok`.
@@ -89,6 +91,14 @@ impl Gps {
             Err(nb::Error::WouldBlock) => Err(nb::Error::WouldBlock),
             Err(nb::Error::Other(e)) => Err(nb::Error::Other(GgaParseError::SerialError(e))),
         }
+    }
+
+    pub fn enable(&mut self) {
+        self.gps_en.set_low();
+    }
+
+    pub fn disable(&mut self) {
+        self.gps_en.set_high();
     }
 }
 

@@ -3,16 +3,16 @@
 # Stop when a command fails
 set -e
 
-MSPDEBUG_DRIVER=rf2500
+# MSPDEBUG_DRIVER=rf2500
 # For the launchpad kit only
-#MSPDEBUG_DRIVER=tilib
+MSPDEBUG_DRIVER=tilib
 
 echo "Flashing..."
 if [ -e ./uniflash/dslite.sh ]; then
     ./uniflash/dslite.sh --config=./uniflash/user_files/configs/MSP430FR2355.ccxml -u "$1"
 else
     # Alternate flashing command
-    ./mspdebug/bin/mspdebug $MSPDEBUG_DRIVER "prog \"$1\"" "verify \"$1\""
+    mspdebug $MSPDEBUG_DRIVER "prog \"$1\"" "verify \"$1\""
 fi
 
 if [ "$2" == "gdb" ]; then

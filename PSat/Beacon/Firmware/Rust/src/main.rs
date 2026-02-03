@@ -54,6 +54,12 @@ fn main() -> ! {
 }
 
 fn state_transition(board: &mut Board, mode: Mode) {
+    if mode.is_idle() {
+        board.gps.disable();
+    } else {
+        board.gps.enable();
+    }
+    
     if mode.is_auto() {
         board.drive_shared_bus();
     } else {
