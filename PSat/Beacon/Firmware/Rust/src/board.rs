@@ -139,7 +139,7 @@ pub fn configure() -> Board {
     let radio = crate::lora::new(spi_ref, pins.lora_cs, pins.lora_reset, delay);
 
     // GPS
-    let gps = crate::gps::Gps::new(regs.E_USCI_A0, &smclk, pins.gps_tx, pins.gps_rx);
+    let gps = crate::gps::Gps::new(regs.E_USCI_A0, &smclk, pins.gps_tx, pins.gps_rx, pins.gps_en);
 
     // Audio beep timer - used to generate ~100ms pulse every ~3sec
     let timer_parts = TimerParts3::new(regs.TB0, TimerConfig::aclk(&aclk).clk_div(TimerDiv::_1, TimerExDiv::_3));
@@ -196,6 +196,7 @@ struct Gpio {
     gps_tx:         GpsTxPin,
     gps_rx:         GpsRxPin,
     gps_reset:      GpsResetPin,
+    gps_en:         GpsEnPin,
     bctrl0:         BCtrl0Pin,
     bctrl1:         BCtrl1Pin,
     tristate_en:    TristateEnPin,
@@ -215,6 +216,8 @@ impl Gpio {
         let gps_rx = port1.pin6.to_alternate1();
         let mut gps_reset = port3.pin3.to_output();
         gps_reset.set_high();
+        let mut gps_en = port3.pin2.to_output();
+        gps_en.set_high();
 
         let sclk = port4.pin1.to_alternate1();
         let mosi = port4.pin3.to_alternate1();
@@ -234,6 +237,6 @@ impl Gpio {
         let audio_pwm = port5.pin0.to_output().to_alternate1();
 
         // Pins consumed by other perihperals
-        Gpio {mosi, miso, sclk, lora_cs, lora_reset, gps_rx, gps_tx, gps_reset, bctrl0, bctrl1, tristate_en, audio_pwm}
+        Gpio {mosi, miso, sclk, lora_cs, lora_reset, gps_rx, gps_tx, gps_reset, gps_en, bctrl0, bctrl1, tristate_en, audio_pwm}
     }
 }
