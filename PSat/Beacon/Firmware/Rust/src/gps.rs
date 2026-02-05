@@ -12,7 +12,7 @@ use crate::pin_mappings::{GpsEnPin, GpsEusci, GpsRx, GpsRxPin, GpsTx, GpsTxPin};
 use embedded_hal_nb::serial::Read;
 
 pub const NMEA_MESSAGE_MAX_LEN: usize = 82;
-const GPS_BAUDRATE: u32 = 9600;
+const GPS_BAUDRATE: u32 = 115200;
 
 pub struct Gps {
     tx: GpsTx,
