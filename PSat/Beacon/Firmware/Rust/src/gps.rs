@@ -93,6 +93,16 @@ impl Gps {
         }
     }
 
+    /// Enable interrupts when the MCU receives a character from the GPS
+    pub fn enable_rx_interrupt(&mut self) {
+        self.rx.enable_rx_interrupts();
+    }
+
+    /// Disable interrupts when the MCU receives a character from the GPS
+    pub fn disable_rx_interrupt(&mut self) {
+        self.rx.disable_rx_interrupts();
+    }
+
     pub fn enable(&mut self) {
         self.gps_en.set_low();
     }

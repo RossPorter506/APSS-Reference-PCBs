@@ -1,10 +1,13 @@
 #![no_main]
 #![no_std]
+#![feature(abi_msp430_interrupt)]
+#![feature(asm_experimental_arch)]
 
 // External imports
 use arrayvec::ArrayString;
-use embedded_hal::pwm::SetDutyCycle;
+use embedded_hal::{digital::InputPin, pwm::SetDutyCycle};
 use msp430_rt::entry;
+use msp430fr2355::interrupt;
 
 // Internal modules
 mod board;
@@ -46,7 +49,13 @@ fn main() -> ! {
         state_actions(&mut board, mode, &mut gps_msg_buf, &mut gps_data);
         prev_mode = mode;
 
-        // TODO: Enter LPM until either:
+        if mode.is_idle() {
+            msp430fr2x5x_hal::lpm::request_lpm4();
+        } else {
+            msp430fr2x5x_hal::lpm::enter_lpm0();
+        }
+        
+        // Awoken from LPM by any of:
         // BCtrl GPIO changes
         // UART packet arrives (active mode only)
         // Audio pulse timer hits toggle point or max value
@@ -68,10 +77,29 @@ fn state_transition(board: &mut Board, mode: Mode) {
 
     if mode.beeps() {
         board.audio_pulse_timer.resume();
+        board.audio_pulse_timer.enable_interrupts();
+        board.audio_pulse_subtimer.enable_interrupts();
     } else {
         board.audio_pwm.set_duty_cycle_fully_off();
         board.audio_pulse_timer.pause();
+        board.audio_pulse_timer.disable_interrupts();
+        board.audio_pulse_subtimer.disable_interrupts();
     }
+
+    if mode.transmits() {
+        board.gps.enable_rx_interrupt();
+    } else {
+        board.gps.disable_rx_interrupt();
+    }
+
+    match board.bctrl0.is_high().unwrap() {
+        true  => board.bctrl0.select_falling_edge_trigger(),
+        false => board.bctrl0.select_rising_edge_trigger(),
+    };
+    match board.bctrl1.is_high().unwrap() {
+        true  => board.bctrl1.select_falling_edge_trigger(),
+        false => board.bctrl1.select_rising_edge_trigger(),
+    };
 }
 
 fn state_actions(board: &mut Board, mode: Mode, gps_msg_buf: &mut ArrayString<NMEA_MESSAGE_MAX_LEN>, gps_data: &mut Option<GgaMessage>) {
@@ -107,5 +135,36 @@ fn state_actions(board: &mut Board, mode: Mode, gps_msg_buf: &mut ArrayString<NM
         if board.radio.transmit_is_complete().is_ok() {
             board.radio_delay_timer.start(board::RADIO_DELAY_MAX);
         }
+    }
+}
+
+// Lazily coded interrupts. I should make proper static vars for the interrupt vectors and such, but we're just
+// using interrupts to wake the CPU from LPM, so we just clear interrupt flags and do everything in main.
+#[interrupt(wake_cpu)]
+fn PORT4() {
+    unsafe {
+        msp430fr2355::Peripherals::steal().P4.p4iv.read();
+    }
+}
+
+// TB0 CCR0 interrupt
+#[interrupt(wake_cpu)]
+fn TIMER0_B0() {
+    // Flag automatically reset
+}
+
+// TB0 CCRx interrupts, x > 0
+#[interrupt(wake_cpu)]
+fn TIMER0_B1() {
+    unsafe {
+        msp430fr2355::Peripherals::steal().TB0.tb0iv.read();
+    }
+}
+
+// GPS (Rx) interrupts
+#[interrupt(wake_cpu)]
+fn EUSCI_A0() {
+    unsafe {
+        msp430fr2355::Peripherals::steal().E_USCI_A0.uca0iv().read();
     }
 }

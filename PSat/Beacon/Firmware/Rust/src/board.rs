@@ -12,7 +12,7 @@ use msp430fr2x5x_hal::{
     pmm::Pmm, 
     pwm::{CCR1, Pwm, PwmParts3, TimerConfig, TimerDiv, TimerExDiv}, 
     spi::SpiConfig, 
-    timer::{Timer, TimerParts3}, 
+    timer::{SubTimer, Timer, TimerParts3}, 
     watchdog::Wdt,
 };
 use crate::{gps::Gps, lora::Radio, pin_mappings::*};
@@ -26,10 +26,11 @@ pub struct Board {
     pub radio: Radio,
     pub radio_delay_timer: Timer<TB1>,
     pub audio_pulse_timer: Timer<TB0>,
+    pub audio_pulse_subtimer: SubTimer<TB0, CCR1>,
     pub audio_pwm:   Pwm<TB2, CCR1>,
     tristate_en: TristateEnPin,
-    bctrl0: BCtrl0Pin,
-    bctrl1: BCtrl1Pin,
+    pub bctrl0: BCtrl0Pin,
+    pub bctrl1: BCtrl1Pin,
 }
 impl Board {
     pub fn check_mode(&mut self) -> Mode {
@@ -134,8 +135,10 @@ pub fn configure() -> Board {
 
     // Audio beep timer - used to generate ~100ms pulse every ~3sec
     let timer_parts = TimerParts3::new(regs.TB0, TimerConfig::aclk(&aclk).clk_div(TimerDiv::_1, TimerExDiv::_3));
-    let mut audio_pulse_timer = timer_parts.timer;
+    let mut audio_pulse_timer = timer_parts.timer; // Main timer: Fires at 3 sec
+    let mut audio_pulse_subtimer = timer_parts.subtimer1; // Subtimer: Fires at 2.9 sec
     audio_pulse_timer.start(AUDIO_TIMER_MAX);
+    audio_pulse_subtimer.set_count(AUDIO_TIMER_TOGGLE_POINT);
 
     // Audio PWM - generates a 4kHz 50% duty cycle
     const AUDIO_FREQUENCY_HZ: u32 = 4_000;
@@ -148,7 +151,7 @@ pub fn configure() -> Board {
     let mut radio_delay_timer = timer_parts.timer;
     radio_delay_timer.start(RADIO_DELAY_MAX);
 
-    Board {delay, gps, radio, audio_pulse_timer, audio_pwm, radio_delay_timer, tristate_en, bctrl0, bctrl1}
+    Board {delay, gps, radio, audio_pulse_timer, audio_pulse_subtimer, audio_pwm, radio_delay_timer, tristate_en, bctrl0, bctrl1}
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
@@ -222,8 +225,10 @@ impl Gpio {
         lora_reset.set_high();
 
         // Default: AutoActive = 0b10
-        let bctrl0 = port4.pin4.pulldown();
-        let bctrl1 = port4.pin5.pullup();
+        let mut bctrl0 = port4.pin4.pulldown();
+        let mut bctrl1 = port4.pin5.pullup();
+        bctrl0.select_falling_edge_trigger().enable_interrupts();
+        bctrl1.select_rising_edge_trigger().enable_interrupts();
 
         let mut tristate_en = port5.pin1.to_output();
         tristate_en.set_high(); // Disconnected by default
