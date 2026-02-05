@@ -147,7 +147,9 @@ pub fn configure() -> Board {
     audio_pulse_timer.start(AUDIO_TIMER_MAX);
 
     // Audio PWM - generates a 4kHz 50% duty cycle
-    let timer_parts = PwmParts3::new(regs.TB2, TimerConfig::aclk(&aclk), 10_000);
+    const AUDIO_FREQUENCY_HZ: u32 = 4_000;
+    let divider = (smclk.freq() / AUDIO_FREQUENCY_HZ) as u16;
+    let timer_parts = PwmParts3::new(regs.TB2, TimerConfig::smclk(&smclk), divider);
     let audio_pwm = timer_parts.pwm1.init(pins.audio_pwm);
 
     // LoRa timer - enforces a minimum time between transmissions
