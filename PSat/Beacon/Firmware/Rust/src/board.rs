@@ -1,7 +1,6 @@
 // An example board support package for a stack using the MCU and Beacon boards.
 
 #![allow(dead_code)]
-use core::cell::RefCell;
 use embedded_hal::{digital::InputPin, pwm::SetDutyCycle};
 use msp430fr2x5x_hal::{ 
     clock::{Clock, ClockConfig, DcoclkFreqSel, MclkDiv, REFOCLK, SmclkDiv}, 
@@ -12,11 +11,10 @@ use msp430fr2x5x_hal::{
     pac::{self, PMM, TB0, TB1, TB2}, 
     pmm::Pmm, 
     pwm::{CCR1, Pwm, PwmParts3, TimerConfig, TimerDiv, TimerExDiv}, 
-    spi::{Spi, SpiConfig}, 
+    spi::SpiConfig, 
     timer::{Timer, TimerParts3}, 
     watchdog::Wdt,
 };
-use static_cell::StaticCell;
 use crate::{gps::Gps, lora::Radio, pin_mappings::*};
 
 /// Top-level object representing the board.
@@ -127,16 +125,9 @@ pub fn configure() -> Board {
     let spi_bus = SpiConfig::new(regs.E_USCI_A1, embedded_hal::spi::MODE_0, true)
         .to_master_using_smclk(&smclk, clk_div)
         .single_master_bus(pins.miso, pins.mosi, pins.sclk);
-
-    // In case we have multiple devices that need to share the SPI bus, we wrap in a RefCell to tell compiler
-    // we will have multiple mutable references but will ensure that we only ever use one at a time 
-    // (MSP430 is single threaded, so this is equivalent to not sending in an interrupt).
-    // StaticCell is just so we can get a 'static reference and don't have to add generic lifetimes to everything.
-    static SPI: StaticCell<RefCell<Spi<RadioEusci>>> = StaticCell::new();
-    let spi_ref: &'static _ = SPI.init(RefCell::new(spi_bus));
     
     // LoRa radio
-    let radio = crate::lora::new(spi_ref, pins.lora_cs, pins.lora_reset, delay);
+    let radio = crate::lora::new(spi_bus, pins.lora_cs, pins.lora_reset, delay);
 
     // GPS
     let gps = crate::gps::Gps::new(regs.E_USCI_A0, &smclk, pins.gps_tx, pins.gps_rx, pins.gps_en);
@@ -154,7 +145,8 @@ pub fn configure() -> Board {
 
     // LoRa timer - enforces a minimum time between transmissions
     let timer_parts = TimerParts3::new(regs.TB1, TimerConfig::aclk(&aclk));
-    let radio_delay_timer = timer_parts.timer;
+    let mut radio_delay_timer = timer_parts.timer;
+    radio_delay_timer.start(RADIO_DELAY_MAX);
 
     Board {delay, gps, radio, audio_pulse_timer, audio_pwm, radio_delay_timer, tristate_en, bctrl0, bctrl1}
 }
