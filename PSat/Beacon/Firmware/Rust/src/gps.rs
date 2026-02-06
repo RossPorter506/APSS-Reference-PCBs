@@ -159,13 +159,18 @@ impl GgaMessage {
         let seconds: u8 = self.utc_time.seconds.clamp(0, 59); // 6 bits
         let num_sats: u8 = self.num_satellites.clamp(0, 15); // 4 bits
         let altitude: i32 = self.altitude_msl.decimetres.clamp(-0x7FFFF, 0x7FFFF); // 20 bits
-        let latitude: i32 = self.latitude.degrees as i32 * 10_000_000 + self.latitude.degrees_millionths as i32 * 100;
-        let longitude: i32 = self.longitude.degrees as i32 * 10_000_000 + self.longitude.degrees_millionths as i32 * 100;
+
+        let mult = if self.latitude.degrees < 0 {-1} else {1};
+        let latitude: i32 = self.latitude.degrees as i32 * 10_000_000 + (self.latitude.degrees_millionths as i32 * 10 * mult);
+
+        let mult = if self.longitude.degrees < 0 {-1} else {1};
+        let longitude: i32 = self.longitude.degrees as i32 * 10_000_000 + (self.longitude.degrees_millionths as i32 * 10 * mult);
+
         let fix_ok: bool = self.fix_type != GpsFixType::None;
         let is_dgps: bool = self.fix_type == GpsFixType::DifferentialGps;
 
         // team_id | hours[5..2]
-        bytes[0]  = (crate::TEAM_ID << 3) | (self.utc_time.hours >> 2);
+        bytes[0]  = (crate::TEAM_ID << 3) | (hours >> 2);
 
         // hours[1..0] | minutes
         bytes[1]  = ((hours & 0b11) << 6) | minutes;
