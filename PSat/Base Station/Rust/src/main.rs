@@ -12,7 +12,7 @@ mod board;
 mod panic_handler;
 mod lora;
 mod gps;
-#[path ="pin_mappings_v2_1.rs"]
+#[path ="pin_mappings_base_station.rs"]
 mod pin_mappings; // Import 'pin_mappings_v2_1' as 'pin_mappings'
 
 // Internal imports
