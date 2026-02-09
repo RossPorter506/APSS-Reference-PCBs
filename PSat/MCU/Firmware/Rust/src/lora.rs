@@ -3,17 +3,16 @@ use core::{cell::RefCell, time::Duration};
 
 use embedded_hal_bus::spi::RefCellDevice;
 use embedded_lora_rfm95::{error::{IoError, RxCompleteError, TxStartError}, lora::types::{Bandwidth, CodingRate, CrcMode, HeaderMode, Polarity, PreambleLength, SpreadingFactor, SyncWord}, rfm95::{self, Rfm95Driver}};
-use embedded_hal_compat::{eh1_0::delay::DelayNs, markers::ForwardOutputPin, Forward, ForwardCompat};
-use msp430fr2x5x_hal::delay::Delay;
+use msp430fr2x5x_hal::delay::SysDelay;
 use nb::Error::{WouldBlock, Other};
-use crate::{board::FwSpiBus, pin_mappings::{RadioCsPin, RadioResetPin}};
+use crate::pin_mappings::{RadioCsPin, RadioResetPin, RadioSpi};
 
 const LORA_FREQ_HZ: u32 = 915_000_000;
 pub use rfm95::RFM95_FIFO_SIZE;
 
-pub fn new(spi_ref: &'static RefCell<FwSpiBus>, cs_pin: RadioCsPin, reset_pin: RadioResetPin, delay: Delay) -> Radio {
-    let radio_spi: SPIDevice = RefCellDevice::new(spi_ref, cs_pin.forward(), crate::lora::DelayWrapper(delay)).unwrap();
-    let mut rfm95 = match Rfm95Driver::new(radio_spi, reset_pin.forward(), &mut DelayWrapper(delay)) {
+pub fn new(spi_ref: &'static RefCell<RadioSpi>, cs_pin: RadioCsPin, reset_pin: RadioResetPin, delay: SysDelay) -> Radio {
+    let radio_spi: SPIDevice = RefCellDevice::new(spi_ref, cs_pin, delay).unwrap();
+    let mut rfm95 = match Rfm95Driver::new(radio_spi, reset_pin, delay) {
         Ok(rfm) => rfm,
         Err(_e) => panic!("Radio reports invalid silicon revision. Is the beacon connected?"),
     };
@@ -34,8 +33,7 @@ pub fn new(spi_ref: &'static RefCell<FwSpiBus>, cs_pin: RadioCsPin, reset_pin: R
     Radio{driver: rfm95}
 }
 
-type FwCsPin = Forward<RadioCsPin, ForwardOutputPin>;
-type SPIDevice = RefCellDevice<'static, FwSpiBus, FwCsPin, DelayWrapper>;
+type SPIDevice = RefCellDevice<'static, RadioSpi, RadioCsPin, SysDelay>;
 type RFM95 = Rfm95Driver<SPIDevice>;
 /// Top-level interface for the radio module.
 pub struct Radio {
@@ -95,33 +93,7 @@ pub enum TxError {
     IoError,
 }
 
-use embedded_hal::blocking::delay::DelayMs;
-// The radio library uses a different version of embedded_hal, so we need to write some wrappers.
-pub struct DelayWrapper(Delay);
-impl DelayNs for DelayWrapper {
-    fn delay_ms(&mut self, ms: u32) {
-        if ms < (u16::MAX as u32) {
-            self.0.delay_ms(ms as u16);
-        }
-        else {
-            let times = ms/(u16::MAX as u32);
-
-            for _ in 0..times {
-                self.0.delay_ms(u16::MAX);
-            }
-            let remainder = ms - times*(u16::MAX as u32);
-            self.0.delay_ms(remainder as u16);
-        }
-    }
-    
-    fn delay_ns(&mut self, ns: u32) {
-        let ms = ns / 1_000_000;
-        self.0.delay_ms(ms as u16);
-    }
-}
-
 pub mod tests {
-    use embedded_hal::timer::CountDown;
     use embedded_lora_rfm95::error::RxCompleteError;
     use ufmt::uwrite;
 

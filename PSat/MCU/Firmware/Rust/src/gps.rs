@@ -6,7 +6,7 @@ use arrayvec::{ArrayString, ArrayVec};
 use msp430fr2x5x_hal::{
     clock::Smclk, 
     serial::{BitCount, BitOrder, Loopback, Parity, RecvError, SerialConfig, StopBits}};
-use embedded_hal::serial::Read;
+use embedded_hal_nb::serial::Read;
 use ufmt::{derive::uDebug, uDisplay, uwrite};
 use crate::pin_mappings::{GpsEusci, GpsRx, GpsRxPin, GpsTx, GpsTxPin};
 
