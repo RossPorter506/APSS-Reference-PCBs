@@ -2,8 +2,9 @@
 
 #![allow(dead_code)]
 use bmp390::sync::Bmp390;
+use mx25v::blocking::MX25V1606;
 use core::{cell::RefCell, convert::Infallible};
-use msp430fr2355::{E_USCI_A1, E_USCI_B1, Peripherals};
+use msp430fr2355::Peripherals;
 use msp430fr2x5x_hal::{
     adc::{Adc, AdcConfig, ClockDivider, Predivider, Resolution, SampleTime, SamplingRate}, 
     clock::{Aclk, Clock, ClockConfig, DcoclkFreqSel, MclkDiv, Smclk, SmclkDiv}, 
@@ -11,31 +12,34 @@ use msp430fr2x5x_hal::{
     fram::Fram, 
     gpio::{Batch, Floating, Input, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7}, 
     i2c::{GlitchFilter, I2cConfig}, 
-    pac::{E_USCI_B0, PMM, TB0}, 
+    pac::{PMM, TB0}, 
     pmm::Pmm, 
     pwm::TimerConfig, 
     serial::{BitCount, BitOrder, Loopback, Parity, SerialConfig, StopBits}, 
-    spi::{Spi, SpiConfig}, 
+    spi::{SpiConfig}, 
     timer::{Timer, TimerParts3}, 
     watchdog::Wdt
 };
 use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin}};
-use embedded_hal_bus::i2c::RefCellDevice as I2cRefCellDevice;
+use embedded_hal_bus::{i2c::RefCellDevice as I2cRefCellDevice, spi::RefCellDevice as SpiRefCellDevice};
 use static_cell::StaticCell;
 use crate::{gps::Gps, icm42670::Imu, lora::Radio, pin_mappings::*, println};
 
-type SpiMaster = RefCell<Spi<E_USCI_B1>>;
+/// CS pin automatically managed
+type ManagedSpi<ChipSel> = SpiRefCellDevice<'static, SensorSpi, ChipSel, SysDelay>; 
+/// No auto-managed CS pin
+type BareSpi = RefCell<SensorSpi>;
 type SharedI2c = I2cRefCellDevice<'static, SensorI2c>;
 
-/// Top-level object representing the MCU board.
-/// 
-/// Not all peripherals are configured. If you need more, add their configuration code to ::configure().
+/// Top-level object representing the MCU board. 
+// Not all peripherals are configured. If you need more, add their configuration code to board_config().
 pub struct McuBoard {
     pub barometer: Bmp390<SharedI2c>,
+    pub flash_mem: MX25V1606<ManagedSpi<FlashCsPin>>,
     pub imu: Imu<SharedI2c>,
     pub delay: SysDelay,
     pub i2c: SharedI2c,
-    pub spi: &'static SpiMaster,
+    pub spi: &'static BareSpi,
     pub adc: Adc,
     pub gpio: Gpio,
     pub timer_b0: Timer<TB0>,
@@ -49,14 +53,15 @@ impl McuBoard {
 
 /// Top-level object representing the a stack of PCBs (namely MCU + Beacon).
 /// 
-/// Not all peripherals are configured. If you need more, add their configuration code to ::configure().
+// If you need more, add their configuration code to is_stack().
 pub struct Stack {
     pub barometer: Bmp390<SharedI2c>,
+    pub flash_mem: MX25V1606<ManagedSpi<FlashCsPin>>,
     pub imu: Imu<SharedI2c>,
     pub delay: SysDelay,
     pub gps: Gps,
     pub i2c: SharedI2c,
-    pub spi: &'static SpiMaster,
+    pub spi: &'static BareSpi,
     pub adc: Adc,
     pub radio: Radio,
     pub gpio: Gpio,
@@ -78,14 +83,15 @@ pub fn standalone(regs: Peripherals) -> McuBoard {
 /// Configure the entire stack of PCBs (MCU + Beacon). The Beacon must be attached for this to succeed.
 pub fn in_stack(regs: Peripherals) -> Stack {
     let (board, smclk, _aclk, mut used, eusci_a1) = board_config(regs);
-    let McuBoard {barometer, mut delay, i2c, spi, adc, gpio, timer_b0, imu} = board;
+    let McuBoard {barometer, mut delay, i2c, spi, flash_mem, adc, gpio, timer_b0, imu} = board;
 
     // LoRa radio
     used.lora_reset.set_low();
     delay.delay_ms(1); // > 100 us
     used.lora_reset.set_high();
     delay.delay_ms(5);
-    let radio = crate::lora::new(board.spi, used.lora_cs, used.lora_reset, board.delay);
+    let radio_spi = SpiRefCellDevice::new(spi, used.lora_cs, delay).unwrap();
+    let radio = crate::lora::new(radio_spi, used.lora_reset, board.delay);
 
     // GPS
     used.gps_reset_pin.set_low();
@@ -102,11 +108,11 @@ pub fn in_stack(regs: Peripherals) -> Stack {
         .split(used.gps_tx_pin, used.gps_rx_pin);
     let gps = crate::gps::Gps::new(tx, rx);
 
-    Stack {barometer, delay, gps, i2c, spi, adc, radio, gpio, timer_b0, imu}
+    Stack {barometer, delay, gps, i2c, spi, flash_mem, adc, radio, gpio, timer_b0, imu}
 }
 
 /// Configure the MCU board, plus give back some unused bits used by other PCBs if they need to be configured later.
-fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, E_USCI_A1) {
+fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, GpsEusci) {
     // Disable watchdog
     let _wdt = Wdt::constrain(regs.WDT_A);
 
@@ -136,8 +142,8 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     // we will have multiple mutable references but will ensure that we only ever use one at a time 
     // (MSP430 is single threaded, so this is equivalent to not sending in an interrupt).
     // StaticCell is just so we can get a 'static reference and don't have to add generic lifetimes to everything.
-    static SPI: StaticCell<RefCell<Spi<E_USCI_B1>>> = StaticCell::new();
-    let spi: &'static _ = SPI.init(RefCell::new(spi_bus));
+    static SPI: StaticCell<BareSpi> = StaticCell::new();
+    let spi: &'static BareSpi = SPI.init(RefCell::new(spi_bus));
 
     // Timer
     let timer_parts = TimerParts3::new(regs.TB0, TimerConfig::aclk(&aclk));
@@ -176,7 +182,11 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     gpio.imu_adr_pin.set_low().ok();
     let imu = Imu::new(I2cRefCellDevice::new(i2c), icm42670::Address::Primary).unwrap(); // TODO: unwrap
 
-    (McuBoard {barometer, delay, i2c: I2cRefCellDevice::new(i2c), spi, imu, adc, timer_b0, gpio}, smclk, aclk, external_pins, regs.E_USCI_A1)
+    // Flash memory
+    let flash_spi = SpiRefCellDevice::new(spi, used.flash_cs_pin, delay).unwrap(); // TODO: unwrap
+    let flash_mem = MX25V1606::new(flash_spi);
+
+    (McuBoard {barometer, delay, i2c: I2cRefCellDevice::new(i2c), spi, flash_mem, imu, adc, timer_b0, gpio}, smclk, aclk, external_pins, regs.E_USCI_A1)
 }
 
 /// The RGB LEDs are active low, which can be a little confusing. A helper struct to reduce cognitive load.
@@ -214,13 +224,17 @@ pub struct Gpio {
     pub enable_1v8:     Enable1v8Pin,
     pub enable_5v:      Enable5vPin,
 
-    // Barometer and IMU pins
+    // Barometer pins
     bmp390_adr_pin: Bmp390AddressPin,
     bmp390_int_pin: Bmp390InterruptPin,
 
+    // IMU pins
     imu_adr_pin:    ImuAddressPin,
     imu_int1_pin:   ImuInterrupt1Pin,
     imu_int2_pin:   ImuInterrupt2Pin,
+
+    // Flash pins
+    pub flash_wp_pin: FlashWpPin,
 
     // Unused UCA0 pins
     pub pin1_4: Pin<P1, Pin4, Input<Floating>>,
@@ -236,8 +250,6 @@ pub struct Gpio {
 
     // Unused GPIO pins
     pub pin2_3: Pin<P2, Pin3, Input<Floating>>,
-    pub pin2_4: Pin<P2, Pin4, Input<Floating>>,
-    pub pin2_5: Pin<P2, Pin5, Input<Floating>>,
     pub pin2_6: Pin<P2, Pin6, Input<Floating>>,
     pub pin2_7: Pin<P2, Pin7, Input<Floating>>,
 
@@ -300,8 +312,14 @@ impl Gpio {
         let mut imu_adr_pin = port6.pin4.to_output();
         imu_adr_pin.set_low();
 
+        let mut flash_wp_pin = port2.pin4.to_output();
+        flash_wp_pin.set_high();
+        let mut flash_cs_pin = port2.pin5.to_output();
+        flash_cs_pin.set_high();
+
+
         // Pins consumed by other perihperals
-        let used_internal = InternalUsedPins {mosi, miso, sclk, debug_tx_pin, i2c_scl_pin, i2c_sda_pin};
+        let used_internal = InternalUsedPins {mosi, miso, sclk, debug_tx_pin, i2c_scl_pin, i2c_sda_pin, flash_cs_pin};
         let used_external = ExternalUsedPins {lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, gps_reset_pin};
 
         let pin1_4 = port1.pin4;
@@ -309,8 +327,6 @@ impl Gpio {
         let pin1_6 = port1.pin6;
 
         let pin2_3 = port2.pin3;
-        let pin2_4 = port2.pin4;
-        let pin2_5 = port2.pin5;
         let pin2_6 = port2.pin6;
         let pin2_7 = port2.pin7;
 
@@ -342,8 +358,9 @@ impl Gpio {
             enable_1v8, enable_5v,
             bmp390_adr_pin, bmp390_int_pin,
             imu_adr_pin, imu_int1_pin, imu_int2_pin,
+            flash_wp_pin,
             pin1_4, pin1_5, pin1_6,
-            pin2_3, pin2_4, pin2_5, pin2_6, pin2_7,
+            pin2_3, pin2_6, pin2_7,
             pin3_4, pin3_5, pin3_6, pin3_7,
             pin4_0,
             pin5_1, pin5_3,
@@ -362,6 +379,7 @@ struct InternalUsedPins {
     i2c_sda_pin:    I2cSdaPin,
     i2c_scl_pin:    I2cSclPin,
     debug_tx_pin:   DebugTxPin,
+    flash_cs_pin:   FlashCsPin,
 }
 
 /// Pins used by things on other boards

@@ -13,10 +13,13 @@ pub type GpsRx              = Rx<E_USCI_A1>;
 pub type GpsTxPin           = Pin<P4, Pin3, Alternate1<Input<Floating>>>;
 pub type GpsRxPin           = Pin<P4, Pin2, Alternate1<Input<Floating>>>;
 
-pub type RadioEusci         = E_USCI_B1;
-pub type RadioSpi           = Spi<E_USCI_B1>;
+pub type SensorEusci        = E_USCI_B1;
+pub type SensorSpi          = Spi<E_USCI_B1>;
 pub type RadioCsPin         = Pin<P4, Pin4, Output>;
 pub type RadioResetPin      = Pin<P1, Pin1, Output>;
+
+pub type FlashWpPin         = Pin<P2, Pin4, Output>;
+pub type FlashCsPin         = Pin<P2, Pin5, Output>;
 
 pub type RedLedPin          = Pin<P2, Pin0, Output>;
 pub type BlueLedPin         = Pin<P2, Pin1, Output>;
