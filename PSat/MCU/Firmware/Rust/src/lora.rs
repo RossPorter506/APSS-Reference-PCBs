@@ -1,18 +1,18 @@
 #![allow(dead_code)]
-use core::{cell::RefCell, time::Duration};
+use core::{time::Duration};
 
 use embedded_hal_bus::spi::RefCellDevice;
 use embedded_lora_rfm95::{error::{IoError, RxCompleteError, TxStartError}, lora::types::{Bandwidth, CodingRate, CrcMode, HeaderMode, Polarity, PreambleLength, SpreadingFactor, SyncWord}, rfm95::{self, Rfm95Driver}};
 use msp430fr2x5x_hal::delay::SysDelay;
 use nb::Error::{WouldBlock, Other};
-use crate::pin_mappings::{RadioCsPin, RadioResetPin, RadioSpi};
+use crate::pin_mappings::{RadioCsPin, RadioResetPin, SensorSpi};
 
 const LORA_FREQ_HZ: u32 = 915_000_000;
 pub use rfm95::RFM95_FIFO_SIZE;
 
-pub fn new(spi_ref: &'static RefCell<RadioSpi>, cs_pin: RadioCsPin, reset_pin: RadioResetPin, delay: SysDelay) -> Radio {
-    let radio_spi: SPIDevice = RefCellDevice::new(spi_ref, cs_pin, delay).unwrap();
-    let mut rfm95 = match Rfm95Driver::new(radio_spi, reset_pin, delay) {
+pub fn new(spi_device: RefCellDevice<'static, SensorSpi, RadioCsPin, SysDelay>, reset_pin: RadioResetPin, delay: SysDelay) -> Radio {
+    
+    let mut rfm95 = match Rfm95Driver::new(spi_device, reset_pin, delay) {
         Ok(rfm) => rfm,
         Err(_e) => panic!("Radio reports invalid silicon revision. Is the beacon connected?"),
     };
@@ -33,7 +33,7 @@ pub fn new(spi_ref: &'static RefCell<RadioSpi>, cs_pin: RadioCsPin, reset_pin: R
     Radio{driver: rfm95}
 }
 
-type SPIDevice = RefCellDevice<'static, RadioSpi, RadioCsPin, SysDelay>;
+type SPIDevice = RefCellDevice<'static, SensorSpi, RadioCsPin, SysDelay>;
 type RFM95 = Rfm95Driver<SPIDevice>;
 /// Top-level interface for the radio module.
 pub struct Radio {
