@@ -18,7 +18,7 @@ use msp430fr2x5x_hal::{
     timer::{Timer, TimerParts3}, 
     watchdog::Wdt
 };
-use embedded_hal::digital::{OutputPin, StatefulOutputPin};
+use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin}};
 use static_cell::StaticCell;
 use crate::{gps::Gps, lora::Radio, pin_mappings::*, println};
 
@@ -71,13 +71,20 @@ pub fn standalone(regs: Peripherals) -> McuBoard {
 
 /// Configure the entire stack of PCBs (MCU + Beacon). The Beacon must be attached for this to succeed.
 pub fn in_stack(regs: Peripherals) -> Stack {
-    let (board, smclk, _aclk, used, eusci_a1) = board_config(regs);
-    let McuBoard {delay, i2c, spi, adc, gpio, timer_b0} = board;
+    let (board, smclk, _aclk, mut used, eusci_a1) = board_config(regs);
+    let McuBoard {mut delay, i2c, spi, adc, gpio, timer_b0} = board;
 
     // LoRa radio
+    used.lora_reset.set_low();
+    delay.delay_ms(1); // > 100 us
+    used.lora_reset.set_high();
+    delay.delay_ms(5);
     let radio = crate::lora::new(board.spi, used.lora_cs, used.lora_reset, board.delay);
 
     // GPS
+    used.gps_reset_pin.set_low();
+    delay.delay_ms(1);
+    used.gps_reset_pin.set_high();
     let (tx, rx) = SerialConfig::new(eusci_a1, 
         BitOrder::LsbFirst, 
         BitCount::EightBits, 
@@ -91,7 +98,6 @@ pub fn in_stack(regs: Peripherals) -> Stack {
 
     Stack {delay, gps, i2c, spi, adc, radio, gpio, timer_b0}
 }
-
 
 /// Configure the MCU board, plus give back some unused bits used by other PCBs if they need to be configured later.
 fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, E_USCI_A1) {
@@ -184,7 +190,6 @@ pub struct Gpio {
     pub green_led: GreenLed,
     pub blue_led:  BlueLed,
     
-    pub lora_irq:       LoraIrqPin,
     pub gps_en:         GpsEnPin,
     pub half_vbat:      HalfVbatPin,
 
@@ -201,13 +206,10 @@ pub struct Gpio {
 
     // Unused UCA1 pins
     pub pin4_0: Pin<P4, Pin0, Input<Floating>>,
-
-    // Unused UCB0 pins
-    pub pin1_0: Pin<P1, Pin0, Input<Floating>>,
-    pub pin1_1: Pin<P1, Pin1, Input<Floating>>,
     
     // Unused ADC pins
     pub pin5_1: Pin<P5, Pin1, Input<Floating>>,
+    pub pin5_3: Pin<P5, Pin3, Input<Floating>>,
 
     // Unused GPIO pins
     pub pin2_3: Pin<P2, Pin3, Input<Floating>>,
@@ -255,14 +257,15 @@ impl Gpio {
         let mosi = port4.pin6.to_alternate1();
         let sclk = port4.pin5.to_alternate1();
         
-        let mut lora_reset = port5.pin2.to_output(); // Not actually connected...
+        let mut lora_reset = port1.pin1.to_output();
         let mut lora_cs = port4.pin4.to_output();
         lora_reset.set_high();
         lora_cs.set_high();
-        let lora_irq = port5.pin3;
 
         let gps_tx_pin = port4.pin3.to_alternate1();
         let gps_rx_pin = port4.pin2.to_alternate1();
+        let mut gps_reset_pin = port1.pin0.to_output();
+        gps_reset_pin.set_high();
         let mut gps_en = port4.pin1.to_output(); // active low
         gps_en.set_low();
 
@@ -273,10 +276,8 @@ impl Gpio {
 
         // Pins consumed by other perihperals
         let used_internal = InternalUsedPins {mosi, miso, sclk, debug_tx_pin, i2c_scl_pin, i2c_sda_pin};
-        let used_external = ExternalUsedPins {lora_cs, lora_reset, gps_rx_pin, gps_tx_pin};
+        let used_external = ExternalUsedPins {lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, gps_reset_pin};
 
-        let pin1_0 = port1.pin0;
-        let pin1_1 = port1.pin1;
         let pin1_4 = port1.pin4;
         let pin1_5 = port1.pin5;
         let pin1_6 = port1.pin6;
@@ -301,6 +302,7 @@ impl Gpio {
         let pin4_0 = port4.pin0;
 
         let pin5_1 = port5.pin1;
+        let pin5_3 = port5.pin3;
 
         let pin6_0 = port6.pin0;
         let pin6_1 = port6.pin1;
@@ -313,16 +315,15 @@ impl Gpio {
 
         let gpio = Self {
             red_led, green_led, blue_led, 
-            lora_irq, 
             gps_en, 
             half_vbat, 
             power_good_1v8, power_good_3v3, 
             enable_1v8, enable_5v,
-            pin1_0, pin1_1, pin1_4, pin1_5, pin1_6,
+            pin1_4, pin1_5, pin1_6,
             pin2_3, pin2_4, pin2_5, pin2_6, pin2_7,
             pin3_4, pin3_5, pin3_6, pin3_7,
             pin4_0,
-            pin5_1,
+            pin5_1, pin5_3,
             pin6_0, pin6_1, pin6_2, pin6_3, pin6_4, pin6_5, pin6_6, pin6_7,
         };
 
@@ -346,4 +347,5 @@ struct ExternalUsedPins {
     lora_cs:        LoraCsPin,
     gps_tx_pin:     GpsTxPin,
     gps_rx_pin:     GpsRxPin,
+    gps_reset_pin:  GpsResetPin,
 }

@@ -16,7 +16,7 @@ pub type GpsRxPin           = Pin<P4, Pin2, Alternate1<Input<Floating>>>;
 pub type RadioEusci         = E_USCI_B1;
 pub type RadioSpi           = Spi<E_USCI_B1>;
 pub type RadioCsPin         = Pin<P4, Pin4, Output>;
-pub type RadioResetPin      = Pin<P5, Pin2, Output>;
+pub type RadioResetPin      = Pin<P1, Pin1, Output>;
 
 pub type RedLedPin          = Pin<P2, Pin0, Output>;
 pub type BlueLedPin         = Pin<P2, Pin1, Output>;
@@ -25,6 +25,7 @@ pub type GreenLedPin        = Pin<P2, Pin2, Output>;
 pub type SpiMisoPin         = Pin<P4, Pin7, Alternate1<Input<Floating>>>;
 pub type SpiMosiPin         = Pin<P4, Pin6, Alternate1<Input<Floating>>>;
 pub type SpiSclkPin         = Pin<P4, Pin5, Alternate1<Input<Floating>>>;
+pub type LoraResetPin       = Pin<P1, Pin1, Output>;
 pub type LoraCsPin          = Pin<P4, Pin4, Output>;
 
 pub type DebugEusci         = E_USCI_A0;
@@ -34,6 +35,7 @@ pub type I2cSdaPin:         = Pin<P1, Pin2, Alternate1<Input<Floating>>>;
 pub type I2cSclPin:         = Pin<P1, Pin3, Alternate1<Input<Floating>>>;
 
 pub type GpsEnPin:          = Pin<P4, Pin1, Output>;
+pub type GpsResetPin:       = Pin<P1, Pin0, Output>;
 
 pub type HalfVbatPin:       = Pin<P5, Pin0, Alternate3<Input<Floating>>>;
 

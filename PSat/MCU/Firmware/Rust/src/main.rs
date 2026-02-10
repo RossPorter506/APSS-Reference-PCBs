@@ -9,7 +9,7 @@ use msp430_rt::entry;
 use msp430fr2x5x_hal::delay::SysDelay;
 
 // Internal modules
-mod pin_mappings { include!("pin_mappings_v2_0.rs"); } // Import 'pin_mappings_v2_0' as 'pin_mappings'
+mod pin_mappings { include!("pin_mappings_v2_1.rs"); } // Import 'pin_mappings_v2_1' as 'pin_mappings'
 mod board;
 mod serial;
 mod panic_handler;
