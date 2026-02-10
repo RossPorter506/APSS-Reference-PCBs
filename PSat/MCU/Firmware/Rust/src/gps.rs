@@ -3,13 +3,12 @@
 use core::{fmt::Debug, num::ParseIntError};
 
 use arrayvec::{ArrayString, ArrayVec};
-use msp430fr2x5x_hal::{
-    clock::Smclk, 
-    serial::{BitCount, BitOrder, Loopback, Parity, RecvError, SerialConfig, StopBits}};
+use msp430fr2x5x_hal::serial::RecvError;
 use embedded_hal_nb::serial::Read;
 use ufmt::{derive::uDebug, uDisplay, uwrite};
-use crate::pin_mappings::{GpsEusci, GpsRx, GpsRxPin, GpsTx, GpsTxPin};
+use crate::pin_mappings::{GpsRx, GpsTx};
 
+pub const GPS_BAUDRATE: u32 = 115200;
 const NMEA_MESSAGE_MAX_LEN: usize = 82;
 
 pub struct Gps {
@@ -18,19 +17,9 @@ pub struct Gps {
     rx_started: bool,
 }
 impl Gps {
-    pub fn new(eusci_reg: GpsEusci, smclk: &Smclk, tx_pin: GpsTxPin, rx_pin: GpsRxPin) -> Self {
-        // Configure UART peripheral
-        let (tx, rx) = SerialConfig::new(eusci_reg, 
-            BitOrder::LsbFirst, 
-            BitCount::EightBits, 
-            StopBits::OneStopBit, 
-            Parity::NoParity, 
-            Loopback::NoLoop, 
-            9600)
-            .use_smclk(smclk)
-            .split(tx_pin, rx_pin);
+    pub fn new(tx: GpsTx, rx: GpsRx) -> Self {
         Self {tx, rx, rx_started: false}
-    } 
+    }
 
     /// Slowly builds up a message byte by byte by checking the serial buffer. Call this function repeatedly until it returns `Ok`.
     /// 

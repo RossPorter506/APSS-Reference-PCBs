@@ -2,13 +2,21 @@
 
 #![allow(dead_code)]
 use core::{cell::RefCell, convert::Infallible};
-use msp430fr2355::E_USCI_B1;
+use msp430fr2355::{E_USCI_A1, E_USCI_B1, Peripherals};
 use msp430fr2x5x_hal::{
     adc::{Adc, AdcConfig, ClockDivider, Predivider, Resolution, SampleTime, SamplingRate}, 
-    clock::{Clock, ClockConfig, DcoclkFreqSel, MclkDiv, SmclkDiv}, delay::SysDelay, fram::Fram, 
+    clock::{Aclk, Clock, ClockConfig, DcoclkFreqSel, MclkDiv, Smclk, SmclkDiv}, 
+    delay::SysDelay, 
+    fram::Fram, 
     gpio::{Batch, Floating, Input, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin2, Pin3, Pin4, Pin5, Pin6, Pin7}, 
     i2c::{GlitchFilter, I2cConfig, I2cSingleMaster}, 
-    pac::{E_USCI_B0, PMM, TB0}, pmm::Pmm, pwm::TimerConfig, spi::{Spi, SpiConfig}, timer::{Timer, TimerParts3}, watchdog::Wdt
+    pac::{E_USCI_B0, PMM, TB0}, 
+    pmm::Pmm, 
+    pwm::TimerConfig, 
+    serial::{BitCount, BitOrder, Loopback, Parity, SerialConfig, StopBits}, 
+    spi::{Spi, SpiConfig}, 
+    timer::{Timer, TimerParts3}, 
+    watchdog::Wdt
 };
 use embedded_hal::digital::{OutputPin, StatefulOutputPin};
 use static_cell::StaticCell;
@@ -17,10 +25,28 @@ use crate::{gps::Gps, lora::Radio, pin_mappings::*, println};
 type SpiMaster = RefCell<Spi<E_USCI_B1>>;
 type I2cMaster = RefCell<I2cSingleMaster<E_USCI_B0>>;
 
-/// Top-level object representing the board.
+/// Top-level object representing the MCU board.
 /// 
 /// Not all peripherals are configured. If you need more, add their configuration code to ::configure().
-pub struct Board {
+pub struct McuBoard {
+    pub delay: SysDelay,
+    pub i2c: &'static I2cMaster,
+    pub spi: &'static SpiMaster,
+    pub adc: Adc,
+    pub gpio: Gpio,
+    pub timer_b0: Timer<TB0>,
+}
+// This is where you should implement top-level functionality. 
+impl McuBoard {
+    pub fn battery_voltage_mv(&mut self) -> u16 {
+        self.adc.read_voltage_mv(&mut self.gpio.half_vbat, 3300).unwrap() * 2
+    }
+}
+
+/// Top-level object representing the a stack of PCBs (namely MCU + Beacon).
+/// 
+/// Not all peripherals are configured. If you need more, add their configuration code to ::configure().
+pub struct Stack {
     pub delay: SysDelay,
     pub gps: Gps,
     pub i2c: &'static I2cMaster,
@@ -31,21 +57,49 @@ pub struct Board {
     pub timer_b0: Timer<TB0>,
 }
 // This is where you should implement top-level functionality. 
-impl Board {
+impl Stack {
     pub fn battery_voltage_mv(&mut self) -> u16 {
         self.adc.read_voltage_mv(&mut self.gpio.half_vbat, 3300).unwrap() * 2
     }
 }
 
-/// Call this function ONCE at the beginning of your program.
-/// Printing won't work until this function is called.
-pub fn configure() -> Board {
-    // Take hardware registers and disable watchdog
-    let regs = msp430fr2355::Peripherals::take().unwrap();
+/// Configure just the MCU board. The other PCBs need not be attached.
+pub fn standalone(regs: Peripherals) -> McuBoard {
+    let (board, ..) = board_config(regs);
+    board
+}
+
+/// Configure the entire stack of PCBs (MCU + Beacon). The Beacon must be attached for this to succeed.
+pub fn in_stack(regs: Peripherals) -> Stack {
+    let (board, smclk, _aclk, used, eusci_a1) = board_config(regs);
+    let McuBoard {delay, i2c, spi, adc, gpio, timer_b0} = board;
+
+    // LoRa radio
+    let radio = crate::lora::new(board.spi, used.lora_cs, used.lora_reset, board.delay);
+
+    // GPS
+    let (tx, rx) = SerialConfig::new(eusci_a1, 
+        BitOrder::LsbFirst, 
+        BitCount::EightBits, 
+        StopBits::OneStopBit, 
+        Parity::NoParity, 
+        Loopback::NoLoop, 
+        crate::gps::GPS_BAUDRATE)
+        .use_smclk(&smclk)
+        .split(used.gps_tx_pin, used.gps_rx_pin);
+    let gps = crate::gps::Gps::new(tx, rx);
+
+    Stack {delay, gps, i2c, spi, adc, radio, gpio, timer_b0}
+}
+
+
+/// Configure the MCU board, plus give back some unused bits used by other PCBs if they need to be configured later.
+fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, E_USCI_A1) {
+    // Disable watchdog
     let _wdt = Wdt::constrain(regs.WDT_A);
 
     // Configure GPIO. `used` are pins consumed by other peripherals.
-    let (gpio, used) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, regs.PMM);
+    let (gpio, used, external_pins) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, regs.PMM);
     
     // Configure clocks to get accurate delay timing, and used by other peripherals
     let mut fram = Fram::new(regs.FRCTL);
@@ -72,12 +126,6 @@ pub fn configure() -> Board {
     // StaticCell is just so we can get a 'static reference and don't have to add generic lifetimes to everything.
     static SPI: StaticCell<RefCell<Spi<E_USCI_B1>>> = StaticCell::new();
     let spi: &'static _ = SPI.init(RefCell::new(spi_bus));
-    
-    // LoRa radio
-    let radio = crate::lora::new(spi, used.lora_cs, used.lora_reset, delay);
-
-    // GPS
-    let gps = crate::gps::Gps::new(regs.E_USCI_A1, &smclk, used.gps_tx_pin, used.gps_rx_pin);
 
     // Timer
     let timer_parts = TimerParts3::new(regs.TB0, TimerConfig::aclk(&aclk));
@@ -107,7 +155,7 @@ pub fn configure() -> Board {
         .use_modclk()
         .configure(regs.ADC);
 
-    Board {delay, gps, radio, i2c, spi, adc, gpio, timer_b0}
+    (McuBoard {delay, i2c, spi, adc, timer_b0, gpio}, smclk, aclk, external_pins, regs.E_USCI_A1)
 }
 
 /// The RGB LEDs are active low, which can be a little confusing. A helper struct to reduce cognitive load.
@@ -183,7 +231,7 @@ pub struct Gpio {
     pub pin6_7: Pin<P6, Pin7, Input<Floating>>,
 }
 impl Gpio {
-    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, p6: P6, pmm: PMM) -> (Self, ConsumedPins) {
+    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, p6: P6, pmm: PMM) -> (Self, InternalUsedPins, ExternalUsedPins) {
         // Configure GPIO
         let pmm = Pmm::new(pmm);
         let port1 = Batch::new(p1).split(&pmm);
@@ -224,7 +272,8 @@ impl Gpio {
         let i2c_scl_pin = port1.pin3.to_alternate1();
 
         // Pins consumed by other perihperals
-        let used = ConsumedPins {mosi, miso, sclk, lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, debug_tx_pin, i2c_scl_pin, i2c_sda_pin};
+        let used_internal = InternalUsedPins {mosi, miso, sclk, debug_tx_pin, i2c_scl_pin, i2c_sda_pin};
+        let used_external = ExternalUsedPins {lora_cs, lora_reset, gps_rx_pin, gps_tx_pin};
 
         let pin1_0 = port1.pin0;
         let pin1_1 = port1.pin1;
@@ -277,20 +326,24 @@ impl Gpio {
             pin6_0, pin6_1, pin6_2, pin6_3, pin6_4, pin6_5, pin6_6, pin6_7,
         };
 
-        (gpio, used)
+        (gpio, used_internal, used_external)
     }
 }
 
-// Pins used by other peripherals.
-struct ConsumedPins {
+/// Pins used by other peripherals.
+struct InternalUsedPins {
     miso:           SpiMisoPin,
     mosi:           SpiMosiPin,
     sclk:           SpiSclkPin,
+    i2c_sda_pin:    I2cSdaPin,
+    i2c_scl_pin:    I2cSclPin,
+    debug_tx_pin:   DebugTxPin,
+}
+
+/// Pins used by things on other boards
+struct ExternalUsedPins {
     lora_reset:     LoraResetPin,
     lora_cs:        LoraCsPin,
     gps_tx_pin:     GpsTxPin,
     gps_rx_pin:     GpsRxPin,
-    debug_tx_pin:   DebugTxPin,
-    i2c_sda_pin:    I2cSdaPin,
-    i2c_scl_pin:    I2cSclPin,
 }
