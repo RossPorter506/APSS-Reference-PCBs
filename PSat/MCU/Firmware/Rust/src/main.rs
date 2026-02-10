@@ -15,6 +15,7 @@ mod serial;
 mod panic_handler;
 mod lora;
 mod gps;
+mod icm42670;
 
 // Internal imports
 use crate::board::Gpio;
