@@ -1,6 +1,7 @@
 // An example board support package for a stack using the MCU and Beacon boards.
 
 #![allow(dead_code)]
+use bmp390::sync::Bmp390;
 use core::{cell::RefCell, convert::Infallible};
 use msp430fr2355::{E_USCI_A1, E_USCI_B1, Peripherals};
 use msp430fr2x5x_hal::{
@@ -8,8 +9,8 @@ use msp430fr2x5x_hal::{
     clock::{Aclk, Clock, ClockConfig, DcoclkFreqSel, MclkDiv, Smclk, SmclkDiv}, 
     delay::SysDelay, 
     fram::Fram, 
-    gpio::{Batch, Floating, Input, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin2, Pin3, Pin4, Pin5, Pin6, Pin7}, 
-    i2c::{GlitchFilter, I2cConfig, I2cSingleMaster}, 
+    gpio::{Batch, Floating, Input, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7}, 
+    i2c::{GlitchFilter, I2cConfig}, 
     pac::{E_USCI_B0, PMM, TB0}, 
     pmm::Pmm, 
     pwm::TimerConfig, 
@@ -19,18 +20,20 @@ use msp430fr2x5x_hal::{
     watchdog::Wdt
 };
 use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin}};
+use embedded_hal_bus::i2c::RefCellDevice as I2cRefCellDevice;
 use static_cell::StaticCell;
 use crate::{gps::Gps, lora::Radio, pin_mappings::*, println};
 
 type SpiMaster = RefCell<Spi<E_USCI_B1>>;
-type I2cMaster = RefCell<I2cSingleMaster<E_USCI_B0>>;
+type SharedI2c = I2cRefCellDevice<'static, SensorI2c>;
 
 /// Top-level object representing the MCU board.
 /// 
 /// Not all peripherals are configured. If you need more, add their configuration code to ::configure().
 pub struct McuBoard {
+    pub barometer: Bmp390<SharedI2c>,
     pub delay: SysDelay,
-    pub i2c: &'static I2cMaster,
+    pub i2c: SharedI2c,
     pub spi: &'static SpiMaster,
     pub adc: Adc,
     pub gpio: Gpio,
@@ -47,9 +50,10 @@ impl McuBoard {
 /// 
 /// Not all peripherals are configured. If you need more, add their configuration code to ::configure().
 pub struct Stack {
+    pub barometer: Bmp390<SharedI2c>,
     pub delay: SysDelay,
     pub gps: Gps,
-    pub i2c: &'static I2cMaster,
+    pub i2c: SharedI2c,
     pub spi: &'static SpiMaster,
     pub adc: Adc,
     pub radio: Radio,
@@ -72,7 +76,7 @@ pub fn standalone(regs: Peripherals) -> McuBoard {
 /// Configure the entire stack of PCBs (MCU + Beacon). The Beacon must be attached for this to succeed.
 pub fn in_stack(regs: Peripherals) -> Stack {
     let (board, smclk, _aclk, mut used, eusci_a1) = board_config(regs);
-    let McuBoard {mut delay, i2c, spi, adc, gpio, timer_b0} = board;
+    let McuBoard {barometer, mut delay, i2c, spi, adc, gpio, timer_b0} = board;
 
     // LoRa radio
     used.lora_reset.set_low();
@@ -96,7 +100,7 @@ pub fn in_stack(regs: Peripherals) -> Stack {
         .split(used.gps_tx_pin, used.gps_rx_pin);
     let gps = crate::gps::Gps::new(tx, rx);
 
-    Stack {delay, gps, i2c, spi, adc, radio, gpio, timer_b0}
+    Stack {barometer, delay, gps, i2c, spi, adc, radio, gpio, timer_b0}
 }
 
 /// Configure the MCU board, plus give back some unused bits used by other PCBs if they need to be configured later.
@@ -105,7 +109,7 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     let _wdt = Wdt::constrain(regs.WDT_A);
 
     // Configure GPIO. `used` are pins consumed by other peripherals.
-    let (gpio, used, external_pins) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, regs.PMM);
+    let (mut gpio, used, external_pins) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, regs.PMM);
     
     // Configure clocks to get accurate delay timing, and used by other peripherals
     let mut fram = Fram::new(regs.FRCTL);
@@ -148,8 +152,8 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
         .configure(used.i2c_scl_pin, used.i2c_sda_pin);
 
     // Again, make a static reference so we don't have to deal with lifetimes
-    static I2C: StaticCell<RefCell<I2cSingleMaster<E_USCI_B0>>> = StaticCell::new();
-    let i2c = I2C.init(RefCell::new(i2c));
+    static I2C: StaticCell<RefCell<SensorI2c>> = StaticCell::new();
+    let i2c: &'static RefCell<SensorI2c> = I2C.init(RefCell::new(i2c));
 
     // ADC
     let adc = AdcConfig::new(
@@ -161,7 +165,12 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
         .use_modclk()
         .configure(regs.ADC);
 
-    (McuBoard {delay, i2c, spi, adc, timer_b0, gpio}, smclk, aclk, external_pins, regs.E_USCI_A1)
+    // Barometer
+    gpio.bmp390_adr_pin.set_low().ok();
+    let config = bmp390::Configuration::default();
+    let barometer = Bmp390::try_new(I2cRefCellDevice::new(i2c), bmp390::Address::Down, delay, &config).unwrap(); // TODO: unwrap
+
+    (McuBoard {barometer, delay, i2c: I2cRefCellDevice::new(i2c), spi, adc, timer_b0, gpio}, smclk, aclk, external_pins, regs.E_USCI_A1)
 }
 
 /// The RGB LEDs are active low, which can be a little confusing. A helper struct to reduce cognitive load.
@@ -199,6 +208,10 @@ pub struct Gpio {
     pub enable_1v8:     Enable1v8Pin,
     pub enable_5v:      Enable5vPin,
 
+    // Barometer and IMU pins
+    bmp390_adr_pin: Bmp390AddressPin,
+    bmp390_int_pin: Bmp390InterruptPin,
+
     // Unused UCA0 pins
     pub pin1_4: Pin<P1, Pin4, Input<Floating>>,
     pub pin1_5: Pin<P1, Pin5, Input<Floating>>,
@@ -225,8 +238,6 @@ pub struct Gpio {
 
     pub pin6_0: Pin<P6, Pin0, Input<Floating>>,
     pub pin6_1: Pin<P6, Pin1, Input<Floating>>,
-    pub pin6_2: Pin<P6, Pin2, Input<Floating>>,
-    pub pin6_3: Pin<P6, Pin3, Input<Floating>>,
     pub pin6_4: Pin<P6, Pin4, Input<Floating>>,
     pub pin6_5: Pin<P6, Pin5, Input<Floating>>,
     pub pin6_6: Pin<P6, Pin6, Input<Floating>>,
@@ -274,6 +285,9 @@ impl Gpio {
         let i2c_sda_pin = port1.pin2.to_alternate1();
         let i2c_scl_pin = port1.pin3.to_alternate1();
 
+        let bmp390_adr_pin = port6.pin2.to_output();
+        let bmp390_int_pin = port6.pin3;
+
         // Pins consumed by other perihperals
         let used_internal = InternalUsedPins {mosi, miso, sclk, debug_tx_pin, i2c_scl_pin, i2c_sda_pin};
         let used_external = ExternalUsedPins {lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, gps_reset_pin};
@@ -306,8 +320,6 @@ impl Gpio {
 
         let pin6_0 = port6.pin0;
         let pin6_1 = port6.pin1;
-        let pin6_2 = port6.pin2;
-        let pin6_3 = port6.pin3;
         let pin6_4 = port6.pin4;
         let pin6_5 = port6.pin5;
         let pin6_6 = port6.pin6;
@@ -319,12 +331,13 @@ impl Gpio {
             half_vbat, 
             power_good_1v8, power_good_3v3, 
             enable_1v8, enable_5v,
+            bmp390_adr_pin, bmp390_int_pin,
             pin1_4, pin1_5, pin1_6,
             pin2_3, pin2_4, pin2_5, pin2_6, pin2_7,
             pin3_4, pin3_5, pin3_6, pin3_7,
             pin4_0,
             pin5_1, pin5_3,
-            pin6_0, pin6_1, pin6_2, pin6_3, pin6_4, pin6_5, pin6_6, pin6_7,
+            pin6_0, pin6_1, pin6_4, pin6_5, pin6_6, pin6_7,
         };
 
         (gpio, used_internal, used_external)
