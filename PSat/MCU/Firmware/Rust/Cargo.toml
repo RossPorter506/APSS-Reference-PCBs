@@ -15,10 +15,11 @@ nb = "*"
 ufmt = "0.2"
 ufmt-utils = "0.2"
 
-embedded-hal-compat = "0.13"
 embedded-lora-rfm95 = "0.3"
 embedded-hal-bus = {version = "0.3", default-features = false, features = ["portable-atomic"]}
 portable-atomic = "1.11"
+
+bmp390 = {version = "0.4", features = ["sync"]}
 
 arrayvec = {version = "0.7", default-features = false }
 static_cell = {version = "2.1"}

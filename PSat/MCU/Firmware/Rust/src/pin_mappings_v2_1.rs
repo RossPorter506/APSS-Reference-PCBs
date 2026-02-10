@@ -46,3 +46,6 @@ pub type Enable5vPin        = Pin<P3, Pin3, Output>;
 
 pub type I2cEusci           = E_USCI_B0;
 pub type SensorI2c          = I2cSingleMaster<E_USCI_B0>;
+
+pub type Bmp390AddressPin   = Pin<P6, Pin2, Output>;
+pub type Bmp390InterruptPin = Pin<P6, Pin3, Input<Floating>>;
