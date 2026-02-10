@@ -49,3 +49,7 @@ pub type SensorI2c          = I2cSingleMaster<E_USCI_B0>;
 
 pub type Bmp390AddressPin   = Pin<P6, Pin2, Output>;
 pub type Bmp390InterruptPin = Pin<P6, Pin3, Input<Floating>>;
+
+pub type ImuAddressPin      = Pin<P6, Pin4, Output>;
+pub type ImuInterrupt1Pin   = Pin<P6, Pin5, Input<Floating>>;
+pub type ImuInterrupt2Pin   = Pin<P6, Pin6, Input<Floating>>;
