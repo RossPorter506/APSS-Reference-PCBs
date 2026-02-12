@@ -194,39 +194,54 @@ struct Gpio {
 }
 impl Gpio {
     fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, pmm: PMM) -> Self {
-        // Configure GPIO
         let pmm = Pmm::new(pmm);
-        let port1 = Batch::new(p1).split(&pmm);
-        let port2 = Batch::new(p2).split(&pmm);
-        let port3 = Batch::new(p3).split(&pmm);
-        let port4 = Batch::new(p4).split(&pmm);
-        let port5 = Batch::new(p5).split(&pmm);
 
-        let gps_tx = port1.pin7.to_alternate1();
-        let gps_rx = port1.pin6.to_alternate1();
-        let mut gps_reset = port3.pin3.to_output();
-        gps_reset.set_high();
-        let mut gps_en = port3.pin2.to_output();
-        gps_en.set_high();
+        // Port 5
+        let port5 = Batch::new(p5)
+            .config_pin1(|p| p.to_output())
+            .config_pin0(|p| p.to_output())
+            .split(&pmm);
+        let mut tristate_en = port5.pin1;
+        tristate_en.set_high(); // Disconnected by default
+        let audio_pwm = port5.pin0.to_alternate1();
 
+        // Port 4
+        let port4 = Batch::new(p4)
+            .config_pin0(|p| p.to_output())
+            .config_pin4(|p| p.pulldown())
+            .config_pin5(|p| p.pullup())
+            .split(&pmm);
         let sclk = port4.pin1.to_alternate1();
         let mosi = port4.pin3.to_alternate1();
         let miso = port4.pin2.to_alternate1();
-        let mut lora_cs = port4.pin0.to_output();
+        let mut lora_cs = port4.pin0;
         lora_cs.set_high();
-        let mut lora_reset = port2.pin3.to_output();
+        // Default: AutoActive = 0b10
+        let bctrl0 = port4.pin4;
+        let bctrl1 = port4.pin5;
+
+        // Port 3
+        let port3 = Batch::new(p3)
+            .config_pin2(|p| p.to_output())
+            .config_pin3(|p| p.to_output())
+            .split(&pmm);
+        let mut gps_reset = port3.pin3;
+        gps_reset.set_high();
+        let mut gps_en = port3.pin2;
+        gps_en.set_high();
+
+        // Port 2
+        let port2 = Batch::new(p2)
+            .config_pin3(|p| p.to_output())
+            .split(&pmm);
+        let mut lora_reset = port2.pin3;
         lora_reset.set_high();
 
-        // Default: AutoActive = 0b10
-        let bctrl0 = port4.pin4.pulldown();
-        let bctrl1 = port4.pin5.pullup();
+        // Port 1
+        let port1 = Batch::new(p1).split(&pmm);
+        let gps_tx = port1.pin7.to_alternate1();
+        let gps_rx = port1.pin6.to_alternate1();
 
-        let mut tristate_en = port5.pin1.to_output();
-        tristate_en.set_high(); // Disconnected by default
-
-        let audio_pwm = port5.pin0.to_output().to_alternate1();
-
-        // Pins consumed by other perihperals
         Gpio {mosi, miso, sclk, lora_cs, lora_reset, gps_rx, gps_tx, gps_reset, gps_en, bctrl0, bctrl1, tristate_en, audio_pwm}
     }
 }
