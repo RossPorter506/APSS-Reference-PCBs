@@ -122,11 +122,11 @@ impl TryFrom<&ArrayString<NMEA_MESSAGE_MAX_LEN>> for GgaMessage {
         if fix_type == GpsFixType::None { return Err(GgaParseError::NoFix) }
 
         Ok( GgaMessage { 
-            utc_time: UtcTime::try_from(sections[1])                .unwrap(),//.map_err(GgaParseError::UtcParseError)?, 
-            latitude:  Degrees::try_from((sections[2], sections[3])).unwrap(),//.map_err(GgaParseError::LatLongParseError)?, 
-            longitude: Degrees::try_from((sections[4], sections[5])).unwrap(),//.map_err(GgaParseError::LatLongParseError)?, 
-            num_satellites: sections[7].parse()                     .unwrap(),//.map_err(GgaParseError::InvalidSatelliteNumber)?, 
-            altitude_msl: Altitude::try_from(sections[9])           .unwrap(),//.map_err(GgaParseError::AltitudeParseError)?, 
+            utc_time: UtcTime::try_from(sections[1])                .map_err(GgaParseError::UtcParseError)?, 
+            latitude:  Degrees::try_from((sections[2], sections[3])).map_err(GgaParseError::LatLongParseError)?, 
+            longitude: Degrees::try_from((sections[4], sections[5])).map_err(GgaParseError::LatLongParseError)?, 
+            num_satellites: sections[7].parse()                     .map_err(GgaParseError::InvalidSatelliteNumber)?, 
+            altitude_msl: Altitude::try_from(sections[9])           .map_err(GgaParseError::AltitudeParseError)?, 
             fix_type,
         })
     }
