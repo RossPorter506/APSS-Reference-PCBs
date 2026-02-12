@@ -46,11 +46,6 @@ fn main() -> ! {
 
         state_actions(&mut board, mode, &mut gps_msg_buf, &mut gps_data);
         prev_mode = mode;
-
-        // TODO: Enter LPM until either:
-        // BCtrl GPIO changes
-        // UART packet arrives (active mode only)
-        // Audio pulse timer hits toggle point or max value
     }
 }
 
