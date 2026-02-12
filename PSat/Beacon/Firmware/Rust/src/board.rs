@@ -176,7 +176,7 @@ impl Mode {
         *self == Mode::AutoActive
     }
     pub fn is_idle(&self) -> bool {
-        matches!(self, Mode::AutoSleep | Mode::Manual)
+        *self == Mode::AutoSleep
     }
 }
 
