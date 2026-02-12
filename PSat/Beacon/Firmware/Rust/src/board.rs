@@ -114,10 +114,6 @@ pub fn configure() -> Board {
         .smclk_on(SmclkDiv::_1)
         .aclk_refoclk() // 32768 Hz
         .freeze(&mut fram);
-
-    // // Spare UART, useful for debug printing to a computer
-    // crate::serial::configure_debug_serial(used.debug_tx_pin, &smclk, regs.E_USCI_A0);
-    // println!("Serial init"); // Like this!
     
     // SPI, used by the LoRa radio
     const SPI_FREQ_HZ: u32 = 250_000; // 250kHz is arbitrary
