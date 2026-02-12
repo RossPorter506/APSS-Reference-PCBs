@@ -33,9 +33,10 @@ fn main() -> ! {
     // GPS data ready to transmit
     let mut gps_data: Option<GgaMessage> = None;
 
+    // Initial state transition
     let mut prev_mode = board.check_mode();
+    state_transition(&mut board, prev_mode);
 
-    state_transition(&mut board, Mode::default());
     loop {
         let mode = board.check_mode();
 
