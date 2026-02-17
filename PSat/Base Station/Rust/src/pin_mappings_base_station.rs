@@ -6,16 +6,16 @@ pac::{E_USCI_A0, E_USCI_A1, E_USCI_B0, P1, P2, P3, P4, P5, P6}, serial::{Rx, Tx}
 
 //pub type TristateEnPin      = Pin<P5, Pin1, Output>;
 
-//pub type AudioPwmPin        = Pin<P5, Pin0, Alternate1<Output>>;
+pub type AudioPwmPin        = Pin<P6, Pin0, Alternate1<Output>>;
 
 pub type GpsEusci           = E_USCI_A1;
 pub type GpsTx              = Tx<E_USCI_A1>;
 pub type GpsRx              = Rx<E_USCI_A1>;
 
 // Tx TO the GPS
-pub type GpsTxPin           = Pin<P4, Pin2, Alternate1<Input<Floating>>>;
+pub type GpsTxPin           = Pin<P4, Pin3, Alternate1<Input<Floating>>>;
 // Rx FROM the GPS
-pub type GpsRxPin           = Pin<P4, Pin3, Alternate1<Input<Floating>>>; 
+pub type GpsRxPin           = Pin<P4, Pin2, Alternate1<Input<Floating>>>; 
 
 pub type GpsResetPin        = Pin<P6, Pin2, Output>;
 // GPS Enable Pin (Inverted)

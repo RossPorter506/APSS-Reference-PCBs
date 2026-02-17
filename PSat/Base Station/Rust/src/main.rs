@@ -29,71 +29,42 @@ fn main() -> ! {
     let mut board = board::configure();
 
     let mut data_recieved: [u8; 255] = [0; 255]; 
-
-    loop {
-        board.radio.recieve_start(None);
-        let _ = nb::block!(board.radio.recieve_is_complete(&mut data_recieved));
-
-        let received_team_id = data_recieved[0] >> 3;
-        match received_team_id {
-            0x01 => {
-
-            }
-
-            0x02 => {
-
-            }
-
-            0x03 => {
-
-            }
-
-            0x04 => {
-                
-            }
-
-            0x05 => {
-                
-            }
-
-            0x06 => {
-                
-            }
-
-            _ => {}
-        }
-        }
-    }
-
-fn state_transition(board: &mut Board, mode: Mode) {
-    if mode.is_idle() {
-        board.gps.disable();
-    } else {
-        board.gps.enable();
-    }
+    let mut gps_msg_buf = ArrayString::new();
+    let mut gps_data: Option<GgaMessage> = None;
     
-    if mode.is_auto() {
-        board.drive_shared_bus();
-    } else {
-        board.yield_shared_bus();
-    }
+    loop {
+        // board.radio.recieve_start(None);
+        // let _ = nb::block!(board.radio.recieve_is_complete(&mut data_recieved));
 
-    if mode.beeps() {
-        board.audio_pulse_timer.resume();
-    } else {
-        board.audio_pwm.set_duty_cycle_fully_off();
-        board.audio_pulse_timer.pause();
-    }
-}
+        // let received_team_id = data_recieved[0] >> 3;
+        // match received_team_id {
+        //     0x01 => {
 
-fn state_actions(board: &mut Board, mode: Mode, gps_msg_buf: &mut ArrayString<NMEA_MESSAGE_MAX_LEN>, gps_data: &mut Option<GgaMessage>) {
-    if mode.beeps() {
-        board.manage_buzzer();
-    }
+        //     }
 
-    if mode.transmits() {
-        // Check for a character. If we have a full message, store it
-        match board.gps.get_gga_message(gps_msg_buf) {
+        //     0x02 => {
+
+        //     }
+
+        //     0x03 => {
+
+        //     }
+
+        //     0x04 => {
+                
+        //     }
+
+        //     0x05 => {
+                
+        //     }
+
+        //     0x06 => {
+                
+        //     }
+
+        //     _ => {}
+        // }
+        match board.gps.get_gga_message(&mut gps_msg_buf) {
             Ok(msg) => {
                 gps_data.replace(msg);
             },
@@ -107,17 +78,5 @@ fn state_actions(board: &mut Board, mode: Mode, gps_msg_buf: &mut ArrayString<NM
             }
         }
 
-        // Transmit iff we would respect the transmit duty cycle AND we have data.
-        if board.radio_delay_timer.wait().is_ok() {
-            if let Some(data) = gps_data.take() {
-                // let str = data.encode_string();
-                // board.radio.transmit_start(str.as_bytes()).unwrap();
-                let bytes = data.encode_binary();
-                board.radio.transmit_start(bytes.as_slice()).unwrap();
-            }
-        }
-        if board.radio.transmit_is_complete().is_ok() {
-            board.radio_delay_timer.start(board::RADIO_DELAY_MAX);
         }
     }
-}
