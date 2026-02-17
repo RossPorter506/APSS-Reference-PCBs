@@ -13,7 +13,7 @@ pub type GpsTx              = Tx<E_USCI_A0>;
 pub type GpsRx              = Rx<E_USCI_A0>;
 
 // Tx TO the GPS
-pub type GpsTxPin           = Pin<P1, Pin7, Alternate1<Input<Floating>>>;
+pub type GpsTxPin           = Pin<P1, Pin7, Alternate1<Input<Floating>>>; 
 // Rx FROM the GPS
 pub type GpsRxPin           = Pin<P1, Pin6, Alternate1<Input<Floating>>>;
 pub type GpsResetPin        = Pin<P3, Pin3, Output>;
