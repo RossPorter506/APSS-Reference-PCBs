@@ -16,7 +16,7 @@ use msp430fr2x5x_hal::{
     watchdog::Wdt,
 };
 use msp430fr2355::P6;
-use crate::{gps::Gps, lora::Radio, pin_mappings::*};
+use crate::{gps::Gps, lora::Radio, pin_mappings::*, println};
 
 /// Top-level object representing the board.
 /// 
@@ -25,19 +25,6 @@ pub struct Board {
     pub delay: SysDelay,
     pub gps: Gps,
     pub radio: Radio,
-    pub radio_delay_timer: Timer<TB1>,
-    pub audio_pulse_timer: Timer<TB0>,
-    pub audio_pwm:   Pwm<TB3, CCR1>,
-}
-impl Board {
-    /// Make the buzzer buzz for 100ms every 3 seconds.
-    pub fn manage_buzzer(&mut self) {
-        if self.audio_pulse_timer.count() > AUDIO_TIMER_TOGGLE_POINT {
-            self.audio_pwm.set_duty_cycle_percent(50); // Buzzer on
-        } else {
-            self.audio_pwm.set_duty_cycle_fully_off(); // Buzzer off
-        }
-    }
 }
 
 // Radio delay timer running off Aclk = Refoclk = 32768 Hz, so this gives a 1 sec timer.
@@ -59,15 +46,15 @@ pub fn configure() -> Board {
     
     // Configure clocks to get accurate delay timing, and used by other peripherals
     let mut fram = Fram::new(regs.FRCTL);
-    let (smclk, aclk, delay) = ClockConfig::new(regs.CS)
+    let (smclk, _aclk, delay) = ClockConfig::new(regs.CS)
         .mclk_dcoclk(DcoclkFreqSel::_16MHz, MclkDiv::_1)
         .smclk_on(SmclkDiv::_1)
         .aclk_refoclk() // 32768 Hz
         .freeze(&mut fram);
 
-    // // Spare UART, useful for debug printing to a computer
-    // crate::serial::configure_debug_serial(used.debug_tx_pin, &smclk, regs.E_USCI_A0);
-    // println!("Serial init"); // Like this!
+    // Spare UART, useful for debug printing to a computer
+    crate::serial::configure_debug_serial(pins.debug_tx, &smclk, regs.E_USCI_A0);
+    println!("Serial init"); // Like this!
     
     // SPI, used by the LoRa radio
     const SPI_FREQ_HZ: u32 = 250_000; // 250kHz is arbitrary
@@ -82,52 +69,7 @@ pub fn configure() -> Board {
     // GPS
     let gps = crate::gps::Gps::new(regs.E_USCI_A1, &smclk, pins.gps_tx, pins.gps_rx, pins.gps_en);
 
-    // Audio beep timer - used to generate ~100ms pulse every ~3sec
-    let timer_parts = TimerParts3::new(regs.TB0, TimerConfig::aclk(&aclk).clk_div(TimerDiv::_1, TimerExDiv::_3));
-    let mut audio_pulse_timer = timer_parts.timer;
-    audio_pulse_timer.start(AUDIO_TIMER_MAX);
-
-    // Audio PWM - generates a 4kHz 50% duty cycle
-    const AUDIO_FREQUENCY_HZ: u32 = 4_000;
-    let divider = (smclk.freq() / AUDIO_FREQUENCY_HZ) as u16;
-    let timer_parts = PwmParts7::new(regs.TB3, TimerConfig::smclk(&smclk), divider);
-    let audio_pwm = timer_parts.pwm1.init(pins.audio_pwm);
-
-    // LoRa timer - enforces a minimum time between transmissions
-    let timer_parts = TimerParts3::new(regs.TB1, TimerConfig::aclk(&aclk));
-    let mut radio_delay_timer = timer_parts.timer;
-    radio_delay_timer.start(RADIO_DELAY_MAX);
-
-    Board {delay, gps, radio, audio_pulse_timer, audio_pwm, radio_delay_timer}
-}
-
-#[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
-#[repr(u8)]
-/// The mode that the beacon board is in. Driven by the bctrl0 and bctrl1 pins.
-pub enum Mode {
-    /// Do nothing
-    AutoSleep = 0b00,
-    /// Buzzer active
-    AutoBeep = 0b01,
-    /// Buzzer active and forwards GPS packets to radio
-    #[default]
-    AutoActive = 0b10,
-    /// Exposes peripherals to the stack to be driven by something else.
-    Manual = 0b11,
-}
-impl Mode {
-    pub fn beeps(&self) -> bool {
-        *self != Mode::AutoSleep
-    }
-    pub fn is_auto(&self) -> bool {
-        *self != Mode::Manual 
-    }
-    pub fn transmits(&self) -> bool {
-        *self == Mode::AutoActive
-    }
-    pub fn is_idle(&self) -> bool {
-        matches!(self, Mode::AutoSleep | Mode::Manual)
-    }
+    Board {delay, gps, radio}
 }
 
 // Pins used by other peripherals.
@@ -142,6 +84,8 @@ struct Gpio {
     gps_reset:      GpsResetPin,
     gps_en:         GpsEnPin,
     audio_pwm:      AudioPwmPin,
+    debug_tx:       DebugTxPin,
+    debug_rx:       DebugRxPin,
 }
 impl Gpio {
     fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, p6: P6, pmm: PMM) -> Self {
@@ -156,6 +100,8 @@ impl Gpio {
 
         let gps_tx = port4.pin3.to_alternate1();
         let gps_rx = port4.pin2.to_alternate1();
+        let debug_tx = port1.pin7.to_alternate1();
+        let debug_rx = port1.pin6.to_alternate1();
         let mut gps_reset = port6.pin2.to_output();
         gps_reset.set_high();
         let mut gps_en = port4.pin0.to_output();
@@ -172,6 +118,6 @@ impl Gpio {
         let audio_pwm = port6.pin0.to_output().to_alternate1();
 
         // Pins consumed by other perihperals
-        Gpio {mosi, miso, sclk, lora_cs, lora_reset, gps_rx, gps_tx, gps_reset, gps_en, audio_pwm}
+        Gpio {mosi, miso, sclk, lora_cs, lora_reset, gps_rx, gps_tx, gps_reset, gps_en, audio_pwm, debug_rx, debug_tx}
     }
 }

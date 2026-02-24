@@ -34,3 +34,8 @@ pub type SpiSclkPin         = Pin<P1, Pin1, Alternate1<Input<Floating>>>;
 // Display pins
 pub type DispSdaPin        = Pin<P4, Pin6, Alternate1<Input<Floating>>>;
 pub type DispSclPin        = Pin<P4, Pin7, Alternate1<Input<Floating>>>;
+
+// UART over programming cable
+pub type DebugEusci        = E_USCI_A0;
+pub type DebugTxPin        = Pin<P1, Pin7, Alternate1<Input<Floating>>>;
+pub type DebugRxPin        = Pin<P1, Pin6, Alternate1<Input<Floating>>>;
