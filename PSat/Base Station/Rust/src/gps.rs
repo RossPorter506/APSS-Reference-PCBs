@@ -105,11 +105,11 @@ impl Gps {
 // A GGA packet in struct form. Useful for interpreting the results on-device.
 pub struct GgaMessage {
     pub utc_time: UtcTime,
-    pub latitude: Degrees,
-    pub longitude: Degrees,
+    pub latitude: DecimalDegrees,
+    pub longitude: DecimalDegrees,
     pub fix_type: GpsFixType,
     pub num_satellites: u8,
-    pub altitude_msl: Altitude,
+    pub altitude_msl: Decimetres,
 }
 impl TryFrom<&ArrayString<NMEA_MESSAGE_MAX_LEN>> for GgaMessage {
     type Error = GgaParseError;
@@ -119,14 +119,14 @@ impl TryFrom<&ArrayString<NMEA_MESSAGE_MAX_LEN>> for GgaMessage {
         if sections.len() != 15 { return Err(GgaParseError::WrongSectionCount) }
 
         let fix_type = GpsFixType::try_from(sections[6]).map_err(|_| GgaParseError::InvalidGpsFixType)?;
-        if fix_type == GpsFixType::None { return Err(GgaParseError::NoFix) }
+        if fix_type == GpsFixType::NoFix { return Err(GgaParseError::NoFix) }
 
         Ok( GgaMessage { 
             utc_time: UtcTime::try_from(sections[1])                .unwrap(),//.map_err(GgaParseError::UtcParseError)?, 
-            latitude:  Degrees::try_from((sections[2], sections[3])).unwrap(),//.map_err(GgaParseError::LatLongParseError)?, 
-            longitude: Degrees::try_from((sections[4], sections[5])).unwrap(),//.map_err(GgaParseError::LatLongParseError)?, 
+            latitude:  DecimalDegrees::try_from((sections[2], sections[3])).unwrap(),//.map_err(GgaParseError::LatLongParseError)?, 
+            longitude: DecimalDegrees::try_from((sections[4], sections[5])).unwrap(),//.map_err(GgaParseError::LatLongParseError)?, 
             num_satellites: sections[7].parse()                     .unwrap(),//.map_err(GgaParseError::InvalidSatelliteNumber)?, 
-            altitude_msl: Altitude::try_from(sections[9])           .unwrap(),//.map_err(GgaParseError::AltitudeParseError)?, 
+            altitude_msl: Decimetres::try_from(sections[9])           .unwrap(),//.map_err(GgaParseError::AltitudeParseError)?, 
             fix_type,
         })
     }
@@ -140,7 +140,7 @@ impl GgaMessage {
             10..  => ufmt::uwrite!(ufmt_utils::WriteAdapter(num_sats),"{}", self.num_satellites).unwrap()
         };
         let fix_type = match self.fix_type {
-            GpsFixType::None => 'N',
+            GpsFixType::NoFix => 'N',
             GpsFixType::Gps => 'G',
             GpsFixType::DifferentialGps => 'D',
         };
@@ -161,12 +161,12 @@ impl GgaMessage {
         let altitude: i32 = self.altitude_msl.decimetres.clamp(-0x7FFFF, 0x7FFFF); // 20 bits
 
         let mult = if self.latitude.degrees < 0 {-1} else {1};
-        let latitude: i32 = self.latitude.degrees as i32 * 10_000_000 + (self.latitude.degrees_millionths as i32 * 10 * mult);
+        let latitude: i32 = self.latitude.degrees as i32 * 10_000_000 + (self.latitude.millionths as i32 * 10 * mult);
 
         let mult = if self.longitude.degrees < 0 {-1} else {1};
-        let longitude: i32 = self.longitude.degrees as i32 * 10_000_000 + (self.longitude.degrees_millionths as i32 * 10 * mult);
+        let longitude: i32 = self.longitude.degrees as i32 * 10_000_000 + (self.longitude.millionths as i32 * 10 * mult);
 
-        let fix_ok: bool = self.fix_type != GpsFixType::None;
+        let fix_ok: bool = self.fix_type != GpsFixType::NoFix;
         let is_dgps: bool = self.fix_type == GpsFixType::DifferentialGps;
 
         // team_id | hours[5..2]
@@ -226,7 +226,7 @@ pub struct UtcTime {
     pub hours: u8,
     pub minutes: u8,
     pub seconds: u8,
-    pub millis: u16, 
+    // pub millis: u16, 
 }
 impl uDisplay for UtcTime {
     fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> Result<(), W::Error>
@@ -264,7 +264,8 @@ impl TryFrom<&str> for UtcTime {
             hours: value[0..2].parse().map_err(UtcError::ParseError)?, 
             minutes: value[2..4].parse().map_err(UtcError::ParseError)?, 
             seconds: value[4..6].parse().map_err(UtcError::ParseError)?, 
-            millis: value.get(7..).unwrap_or("0").parse().map_err(UtcError::ParseError)? })
+            // millis: value.get(7..).unwrap_or("0").parse().map_err(UtcError::ParseError)? 
+        })
     }
 }
 #[derive(Debug)]
@@ -275,23 +276,23 @@ pub enum UtcError {
 
 #[derive(Debug, Clone)]
 /// A degrees value, stored as a decimal fraction.
-pub struct Degrees {
+pub struct DecimalDegrees {
     pub degrees: i16,
-    pub degrees_millionths: u32,
+    pub millionths: u32,
 }
-impl uDisplay for Degrees {
+impl uDisplay for DecimalDegrees {
     fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: ufmt::uWrite + ?Sized {
         let mut leading_zeroes = ArrayString::<6>::new(); 
-        for _ in 0..5-self.degrees_millionths.checked_ilog10().unwrap_or(0) {
+        for _ in 0..5-self.millionths.checked_ilog10().unwrap_or(0) {
             leading_zeroes.push('0');
         }
 
-        uwrite!(f, "{}.{}{}", self.degrees, leading_zeroes.as_str(), self.degrees_millionths)
+        uwrite!(f, "{}.{}{}", self.degrees, leading_zeroes.as_str(), self.millionths)
     }
 }
-impl TryFrom<(&str, &str)> for Degrees {
+impl TryFrom<(&str, &str)> for DecimalDegrees {
     type Error = LatLongParseError;
 
     fn try_from(value: (&str, &str)) -> Result<Self, Self::Error> {
@@ -322,8 +323,8 @@ impl TryFrom<(&str, &str)> for Degrees {
         let degrees_millionths: u32 = minutes_times_10000.parse::<u32>().unwrap() * 100 / 60;
     
         match compass_direction {
-            "N" | "E" => Ok(Degrees{degrees,            degrees_millionths}),
-            "S" | "W" => Ok(Degrees{degrees: -degrees,  degrees_millionths}),
+            "N" | "E" => Ok(DecimalDegrees{degrees,            millionths: degrees_millionths}),
+            "S" | "W" => Ok(DecimalDegrees{degrees: -degrees,  millionths: degrees_millionths}),
             _ => Err(LatLongParseError::InvalidCompassDirection)
         }
     }
@@ -336,7 +337,7 @@ pub enum LatLongParseError {
 
 #[derive(Debug, uDebug, PartialEq, Eq)]
 pub enum GpsFixType {
-    None = 0,
+    NoFix = 0,
     Gps = 1,
     DifferentialGps = 2,
 }
@@ -345,27 +346,47 @@ impl TryFrom<&str> for GpsFixType{
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Ok(match value {
-            "0" => GpsFixType::None,
+            "0" => GpsFixType::NoFix,
             "1" => GpsFixType::Gps,
             "2" => GpsFixType::DifferentialGps,
             _ => return Err(()), // should be unreachable
         })
     }
 }
+impl uDisplay for GpsFixType { // 'n', 'g', or 'd'
+    fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> Result<(), W::Error>
+    where W: ufmt::uWrite + ?Sized {
+        let c = match self {
+            GpsFixType::NoFix => 'n',
+            GpsFixType::Gps   => 'g',
+            GpsFixType::DifferentialGps  => 'd',
+        };
+        uwrite!(f, "{}", c)?;
+        Ok(())
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
-pub struct Altitude{
+pub struct Decimetres {
     pub decimetres: i32,
 }
-impl TryFrom<&str> for Altitude {
+impl Decimetres {
+    pub fn new(decimetres: i32) -> Self {
+        Decimetres { decimetres }
+    }
+    pub fn from_metres(metres: i32) -> Self {
+        Decimetres { decimetres: metres.saturating_mul(10) }
+    }
+}
+impl TryFrom<&str> for Decimetres {
     type Error = ParseIntError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (whole, frac) = value.split_once(".").unwrap();
-        Ok(Altitude{ decimetres: whole.parse::<i32>()?*10 + frac[..1].parse::<i32>()?})
+        Ok(Decimetres{ decimetres: whole.parse::<i32>()?*10 + frac[..1].parse::<i32>()?})
     }
 }
-impl uDisplay for Altitude {
+impl uDisplay for Decimetres {
     fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> Result<(), W::Error>
     where W: ufmt::uWrite + ?Sized { 
         let metres = self.decimetres / 10;

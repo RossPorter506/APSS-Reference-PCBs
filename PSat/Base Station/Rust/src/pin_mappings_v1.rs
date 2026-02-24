@@ -1,3 +1,4 @@
+#![allow(unused_imports, dead_code)]
 use msp430fr2x5x_hal::{gpio::{Alternate1, Floating, Input, Output, Pin, Pin0, Pin1, Pin2, Pin3, Pin4, Pin5, Pin6, Pin7, Pulldown, Pullup},
 pac::{E_USCI_A0, E_USCI_A1, E_USCI_B0, P1, P2, P3, P4, P5, P6}, serial::{Rx, Tx}, spi::Spi};
 
