@@ -1,18 +1,15 @@
 // An example board support package for a stack using the MCU and Beacon boards.
 
 #![allow(dead_code)]
-use embedded_hal::{digital::InputPin, pwm::SetDutyCycle};
 use msp430fr2x5x_hal::{ 
-    clock::{Clock, ClockConfig, DcoclkFreqSel, MclkDiv, REFOCLK, SmclkDiv}, 
+    clock::{Clock, ClockConfig, DcoclkFreqSel, MclkDiv, SmclkDiv}, 
     delay::SysDelay, 
     ehal::digital::OutputPin, 
     fram::Fram, 
     gpio::{Batch, P1, P2, P3, P4, P5}, 
-    pac::{self, PMM, TB0, TB1, TB3}, 
+    pac::PMM, 
     pmm::Pmm, 
-    pwm::{CCR1, Pwm, PwmParts3, PwmParts7, TimerConfig, TimerDiv, TimerExDiv}, 
     spi::SpiConfig, 
-    timer::{Timer, TimerParts3}, 
     watchdog::Wdt,
 };
 use msp430fr2355::P6;
@@ -27,14 +24,6 @@ pub struct Board {
     pub radio: Radio,
 }
 
-// Radio delay timer running off Aclk = Refoclk = 32768 Hz, so this gives a 1 sec timer.
-pub const RADIO_DELAY_MAX: u16 = REFOCLK;
-
-// With Aclk = Refoclk = 32768Hz, with a /3 divider on a timer counting to 32768 takes 3 sec
-const AUDIO_TIMER_MAX: u16 = REFOCLK;
-// When the timer is above this value we are between 2.9 and 3 sec. Used to turn on the buzzer for a short beep
-const AUDIO_TIMER_TOGGLE_POINT: u16 = ((AUDIO_TIMER_MAX as u32 * 29) / 30) as u16;
-
 /// Call this function ONCE at the beginning of your program.
 pub fn configure() -> Board {
     // Take hardware registers and disable watchdog
@@ -47,7 +36,7 @@ pub fn configure() -> Board {
     // Configure clocks to get accurate delay timing, and used by other peripherals
     let mut fram = Fram::new(regs.FRCTL);
     let (smclk, _aclk, delay) = ClockConfig::new(regs.CS)
-        .mclk_dcoclk(DcoclkFreqSel::_16MHz, MclkDiv::_1)
+        .mclk_dcoclk(DcoclkFreqSel::_24MHz, MclkDiv::_1)
         .smclk_on(SmclkDiv::_1)
         .aclk_refoclk() // 32768 Hz
         .freeze(&mut fram);
@@ -57,7 +46,7 @@ pub fn configure() -> Board {
     println!("Serial init"); // Like this!
     
     // SPI, used by the LoRa radio
-    const SPI_FREQ_HZ: u32 = 250_000; // 250kHz is arbitrary
+    const SPI_FREQ_HZ: u32 = 8_000_000; // Max speed
     let clk_div = (smclk.freq() / SPI_FREQ_HZ) as u16;
     let spi_bus = SpiConfig::new(regs.E_USCI_B0, embedded_hal::spi::MODE_0, true)
         .to_master_using_smclk(&smclk, clk_div)
@@ -92,10 +81,10 @@ impl Gpio {
         // Configure GPIO
         let pmm = Pmm::new(pmm);
         let port1 = Batch::new(p1).split(&pmm);
-        let port2 = Batch::new(p2).split(&pmm);
-        let port3 = Batch::new(p3).split(&pmm);
+        let _port2 = Batch::new(p2).split(&pmm);
+        let _port3 = Batch::new(p3).split(&pmm);
         let port4 = Batch::new(p4).split(&pmm);
-        let port5 = Batch::new(p5).split(&pmm);
+        let _port5 = Batch::new(p5).split(&pmm);
         let port6 = Batch::new(p6).split(&pmm);
 
         let gps_tx = port4.pin3.to_alternate1();

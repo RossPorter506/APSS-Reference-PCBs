@@ -8,7 +8,6 @@ use nb::Error::{WouldBlock, Other};
 use crate::pin_mappings::{RadioCsPin, RadioEusci, RadioResetPin};
 
 const LORA_FREQ_HZ: u32 = 915_000_000;
-pub use rfm95::RFM95_FIFO_SIZE;
 
 pub fn new(spi: Spi<RadioEusci>, cs_pin: RadioCsPin, reset_pin: RadioResetPin, delay: SysDelay) -> Radio {
     let spi_device = ExclusiveDevice::new(spi, cs_pin, delay).unwrap();

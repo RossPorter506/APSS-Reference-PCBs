@@ -2,7 +2,7 @@
 // so if you're running out of space consider commenting out some of these print statements (or uncommenting `strip = true` in cargo.toml!).
 use core::panic::PanicInfo;
 #[panic_handler]
-fn panic_handler(panic_info: &PanicInfo) -> ! {
+fn panic_handler(_panic_info: &PanicInfo) -> ! {
     msp430::interrupt::disable();
 
     // let serial_configured = msp430::critical_section::with(|cs| { crate::serial::SERIAL.borrow_ref(cs).is_some() });
