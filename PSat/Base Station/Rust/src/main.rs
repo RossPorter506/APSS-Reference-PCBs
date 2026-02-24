@@ -1,12 +1,13 @@
 #![no_main]
 #![no_std]
 
+use arrayvec::ArrayString;
 // External imports
 use msp430_rt::entry;
 use ufmt::{uDisplay, uwrite};
 use embedded_lora_rfm95::rfm95::RFM95_FIFO_SIZE;
-
-use crate::gps::{DecimalDegrees, Decimetres, GgaMessage, GpsFixType, UtcTime};
+use nb::Error::{Other, WouldBlock};
+use crate::gps::{DecimalDegrees, Decimetres, GgaMessage, GgaParseError, GpsFixType, UtcTime};
 
 // Internal modules
 mod board;
@@ -24,12 +25,27 @@ fn main() -> ! {
     let mut board = board::configure();
 
     let mut radio_buffer: [u8; RFM95_FIFO_SIZE] = [0; 255];
+    let mut gps_buffer = ArrayString::new();
 
     board.radio.recieve_start(None);
     loop {
-        match nb::block!(board.radio.recieve_is_complete(&mut radio_buffer)) {
-            Err(_)    => (),
-            Ok(bytes) => print_bytes(bytes),
+        // Depending on how much LoRa traffic we receive, we may get starved for GPS messages:
+        // Once per second, the GPS sends a byte every ~80us until it's sent ~82 bytes (~7ms total), then nothing for the rest of the second.
+        // Printing the radio messages takes longer than 80us, so if we're halfway through a GPS message at the time, then the serial buffer will overrun while we're printing.
+        // I doubt this will be an issue in practise, but if it is a problem then receiving the GPS message could instead be done through an interrupt.
+
+        match board.gps.get_gga_message(&mut gps_buffer) {
+            Ok(msg) => {
+                let GgaMessage { utc_time, latitude, longitude, fix_type, altitude_msl, num_satellites } = msg;
+                println!("$B{};{};{};{};{};{}", fix_type, utc_time, latitude, longitude, altitude_msl, num_satellites);
+            },
+            Err(WouldBlock | Other(GgaParseError::NoFix)) => (),
+            Err(_) => gps_buffer.clear(), // Clear buffer and try again
+        }
+        match board.radio.recieve_is_complete(&mut radio_buffer) {
+            Ok(bytes)       => print_bytes(bytes),
+            Err(WouldBlock) => continue,
+            Err(Other(_))   => (),
         };
         board.radio.recieve_start(None)
     }
