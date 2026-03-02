@@ -37,17 +37,21 @@ fn main() -> ! {
     }
 }
 
+/// Print various types of packets. In future we should probably have a packet type field at the start.
 fn print_bytes(bytes: &[u8]) {
-    let maybe_arr = <[u8; 14]>::try_from(bytes);
-    match maybe_arr {
-        Ok(arr) => { // Treat 14 byte strings as GPS data. In future we should probably have a packet type field at the start.
-            let(team_id, data) = decode_binary(arr);
-            let GgaMessage { utc_time, latitude, longitude, fix_type, altitude_msl, num_satellites } = data;
-            println!("$G{};{};{};{};{};{};{}", team_id, fix_type, utc_time, latitude, longitude, altitude_msl, num_satellites);
-        },
-        Err(_) => { // Some other string of bytes
-            println!("$?{};{}", bytes.len(), SliceAsHex(bytes));
-        },
+    if let Ok(arr_14) = <[u8;14]>::try_from(bytes) {
+        // Treat 14 byte strings as bitpacked GPS data.
+        let(team_id, data) = decode_binary(arr_14);
+        let GgaMessage { utc_time, latitude, longitude, fix_type, altitude_msl, num_satellites } = data;
+        println!("$G{};{};{};{};{};{};{}", team_id, fix_type, utc_time, latitude, longitude, altitude_msl, num_satellites);
+    }
+    else if let Ok(str) = str::from_utf8(bytes) {
+        // Print ASCII / Unicode strings as-is
+        println!("$U{};{}", str.len(), str);
+    }
+    else {
+        // Hex-encode anything else that's not a string
+        println!("$?{};{}", bytes.len(), SliceAsHex(bytes));
     }
 }
 
