@@ -22,6 +22,9 @@ pub struct Board {
     pub delay: SysDelay,
     pub gps: Gps,
     pub radio: Radio,
+    pub red_led: RedLedPin,
+    pub green_led: GreenLedPin,
+    pub blue_led: BlueLedPin,
 }
 
 /// Call this function ONCE at the beginning of your program.
@@ -58,7 +61,7 @@ pub fn configure() -> Board {
     // GPS
     let gps = crate::gps::Gps::new(regs.E_USCI_A1, &smclk, pins.gps_tx, pins.gps_rx, pins.gps_en);
 
-    Board {delay, gps, radio}
+    Board {delay, gps, radio, red_led: pins.red_led, green_led: pins.green_led, blue_led: pins.blue_led}
 }
 
 // Pins used by other peripherals.
@@ -75,13 +78,16 @@ struct Gpio {
     audio_pwm:      AudioPwmPin,
     debug_tx:       DebugTxPin,
     debug_rx:       DebugRxPin,
+    red_led:        RedLedPin,
+    green_led:      GreenLedPin,
+    blue_led:       BlueLedPin,
 }
 impl Gpio {
     fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, p6: P6, pmm: PMM) -> Self {
         // Configure GPIO
         let pmm = Pmm::new(pmm);
         let port1 = Batch::new(p1).split(&pmm);
-        let _port2 = Batch::new(p2).split(&pmm);
+        let port2 = Batch::new(p2).split(&pmm);
         let _port3 = Batch::new(p3).split(&pmm);
         let port4 = Batch::new(p4).split(&pmm);
         let _port5 = Batch::new(p5).split(&pmm);
@@ -106,7 +112,20 @@ impl Gpio {
 
         let audio_pwm = port6.pin0.to_output().to_alternate1();
 
+        let mut red_led = port2.pin0.to_output(); 
+        let mut green_led = port2.pin1.to_output(); 
+        let mut blue_led = port2.pin2.to_output(); 
+        red_led.set_high().ok();
+        green_led.set_high().ok();
+        blue_led.set_high().ok();
+
         // Pins consumed by other perihperals
-        Gpio {mosi, miso, sclk, lora_cs, lora_reset, gps_rx, gps_tx, gps_reset, gps_en, audio_pwm, debug_rx, debug_tx}
+        Gpio {
+            mosi, miso, sclk, 
+            lora_cs, lora_reset, 
+            gps_rx, gps_tx, gps_reset, gps_en, 
+            audio_pwm, debug_rx, debug_tx,
+            red_led, green_led, blue_led
+        }
     }
 }
