@@ -1,0 +1,6 @@
+v2 base station changes:
+programming header - wrong pinout due to straight connector, swap to right angle and double check pinout
+2.54mm breakouts for eUSCI peripherals, and regulator enable pin, etc.
+external antenna for lora and GPS - need impedance matching to e.g. 50 ohms. Will be tricky on a 2-layer board.
+Improve routing
+Add compass sensor so the base station can print the direction to walk to find the payload - we have our GPS location and the destination, we just need orientation to fully automate.

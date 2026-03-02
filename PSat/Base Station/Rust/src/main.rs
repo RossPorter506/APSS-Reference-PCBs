@@ -1,6 +1,7 @@
 #![no_main]
 #![no_std]
 
+use embedded_hal::digital::OutputPin;
 // External imports
 use msp430_rt::entry;
 use ufmt::{uDisplay, uwrite};
@@ -22,6 +23,7 @@ const TEAM_ID: u8 = 31;
 #[entry]
 fn main() -> ! {
     let mut board = board::configure();
+    board.green_led.set_low();
 
     let mut radio_buffer: [u8; RFM95_FIFO_SIZE] = [0; 255];
 

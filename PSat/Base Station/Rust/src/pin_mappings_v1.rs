@@ -32,6 +32,10 @@ pub type SpiMisoPin         = Pin<P1, Pin3, Alternate1<Input<Floating>>>;
 pub type SpiMosiPin         = Pin<P1, Pin2, Alternate1<Input<Floating>>>;
 pub type SpiSclkPin         = Pin<P1, Pin1, Alternate1<Input<Floating>>>;
 
+pub type RedLedPin          = Pin<P2, Pin0, Output>;
+pub type GreenLedPin        = Pin<P2, Pin1, Output>;
+pub type BlueLedPin         = Pin<P2, Pin2, Output>;
+
 // Display pins
 pub type DispSdaPin        = Pin<P4, Pin6, Alternate1<Input<Floating>>>;
 pub type DispSclPin        = Pin<P4, Pin7, Alternate1<Input<Floating>>>;

@@ -1,28 +1,22 @@
-// Our panic handler. Currently we print strings here for maximum debuggability. String printing is quite expensive in terms of executable size,
-// so if you're running out of space consider commenting out some of these print statements (or uncommenting `strip = true` in cargo.toml!).
+// Our panic handler. Rapidly blinks the red LED if something's gone wrong.
 use core::panic::PanicInfo;
+
+use msp430::asm::nop;
 #[panic_handler]
 fn panic_handler(_panic_info: &PanicInfo) -> ! {
     msp430::interrupt::disable();
 
-    // let serial_configured = msp430::critical_section::with(|cs| { crate::serial::SERIAL.borrow_ref(cs).is_some() });
-    // if serial_configured {
-    //     print!("Panic: ");
-    //     if let Some(location) = panic_info.location() {
-    //         // Printing code locations adds a lot of executable size
-    //         println!("File: {}, line: {}, col: {},", location.file(), location.line(), location.column())
-    //     }
-    //     if let Some(message) = panic_info.message().as_str() {
-    //         print!("{}", message);
-    //     }
-    //     else {
-    //         // Unfortunately we can't print PanicMessage using ufmt because it doesn't implement uDisplay or uDebug.
-    //         // The below code pulls in Rust's standard printing library. This takes more executable space, remove it if you need to.
-    //         stdlib_println!("{}", panic_info.message());
-    //         //println!("Can't print message");
-    //     }
-    // }
-    loop { msp430::asm::barrier(); }
+    let regs = unsafe { msp430fr2355::Peripherals::steal() };
+
+    unsafe { regs.P2.p2dir.set_bits(|w| w.bits(1 << 2 | 1 << 1 | 1 << 0)) }; // Set LEDs (P2.2, 2.1, 2.0) to output
+    unsafe{ regs.P2.p2out.set_bits(|w| w.bits(1 << 2 | 1 << 1)) }; // Set green, blue off
+    
+    loop { 
+        for _ in 0..50_000 {
+            nop();
+        }
+        unsafe{ regs.P2.p2out.toggle_bits(|w| w.bits(1)) }; // Toggle red
+    }
 }
 
 // The compiler will emit calls to the abort() compiler intrinsic if debug assertions are
