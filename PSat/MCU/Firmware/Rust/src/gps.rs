@@ -9,7 +9,7 @@ use ufmt::{derive::uDebug, uDisplay, uwrite};
 use crate::pin_mappings::{GpsRx, GpsTx};
 
 pub const GPS_BAUDRATE: u32 = 115200;
-const NMEA_MESSAGE_MAX_LEN: usize = 82;
+pub const NMEA_MESSAGE_MAX_LEN: usize = 82;
 
 pub struct Gps {
     tx: GpsTx,
@@ -136,12 +136,49 @@ impl Debug for GgaParseError {
     }
 }
 
+#[derive(Default, Clone)]
 /// A UTC timestamp
 pub struct UtcTime {
     pub hours: u8,
     pub minutes: u8,
     pub seconds: u8,
-    pub millis: u16, 
+    pub millis: u16,
+}
+impl UtcTime {
+    pub fn increment(&mut self) {
+        if self.millis < 980 {
+            self.millis += 20;
+            return;
+        }
+        self.millis = 0;
+        if self.seconds < 59 {
+            self.seconds += 1;
+            return;
+        }
+        self.seconds = 0;
+        if self.minutes < 59 {
+            self.minutes += 1;
+            return;
+        }
+        self.minutes = 0;
+        self.hours += 1;
+    }
+    pub fn seconds_since(&self, other: &Self) -> i32 {
+        self.as_seconds() as i32 - other.as_seconds() as i32
+    }
+    pub fn as_seconds(&self) -> u32 {
+        60*(60*self.hours as u32 + self.minutes as u32) + self.seconds as u32
+    }
+    pub fn as_bytes(&self) -> [u8;5] {
+        let millis_bytes = self.millis.to_le_bytes();
+        return [self.hours, self.minutes, self.seconds, millis_bytes[0], millis_bytes[1]]
+    }
+    pub fn try_from_bytes(bytes: [u8;5]) -> Option<Self> {
+        if bytes == [0xFF;5] { return None }
+        let (hours, minutes, seconds) = (bytes[0], bytes[1], bytes[2]);
+        let millis = u16::from_le_bytes([bytes[3], bytes[4]]);
+        Some( Self { hours, minutes, seconds, millis } )
+    }
 }
 impl uDisplay for UtcTime {
     fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> Result<(), W::Error>
@@ -190,8 +227,8 @@ pub enum UtcError {
 
 /// A degrees value, stored as a decimal fraction.
 pub struct Degrees {
-    degrees: i16,
-    degrees_millionths: u32,
+    pub degrees: i16,
+    pub degrees_millionths: u32,
 }
 impl uDisplay for Degrees {
     fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> Result<(), W::Error>
@@ -268,7 +305,7 @@ impl TryFrom<&str> for GpsFixType{
 }
 
 pub struct Altitude{
-    decimetres: i32,
+    pub decimetres: i32,
 }
 impl TryFrom<&str> for Altitude {
     type Error = ParseIntError;

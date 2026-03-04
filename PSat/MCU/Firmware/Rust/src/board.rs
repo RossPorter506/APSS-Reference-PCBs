@@ -3,27 +3,30 @@
 #![allow(dead_code)]
 use bmp390::sync::Bmp390;
 use mx25v::blocking::MX25V1606;
-use core::{cell::RefCell, convert::Infallible};
+use static_assertions::assert_type_eq_all;
+use core::{cell::RefCell, convert::Infallible, ops::Range};
 use msp430fr2355::Peripherals;
 use msp430fr2x5x_hal::{
     adc::{Adc, AdcConfig, ClockDivider, Predivider, Resolution, SampleTime, SamplingRate}, 
     clock::{Aclk, Clock, ClockConfig, DcoclkFreqSel, MclkDiv, Smclk, SmclkDiv}, 
     delay::SysDelay, 
     fram::Fram, 
-    gpio::{Batch, Floating, Input, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7}, 
+    gpio::{Batch, Floating, Input, Output, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7, Pulldown}, 
     i2c::{GlitchFilter, I2cConfig}, 
-    pac::{PMM, TB0}, 
-    pmm::Pmm, 
+    info_mem::InfoMemory, 
+    pac::TB0, 
+    pmm::{InternalVRef, Pmm, ReferenceVoltage}, 
     pwm::TimerConfig, 
+    rtc::{Rtc, RtcSmclk}, 
     serial::{BitCount, BitOrder, Loopback, Parity, SerialConfig, StopBits}, 
-    spi::{SpiConfig}, 
+    spi::SpiConfig, 
     timer::{Timer, TimerParts3}, 
     watchdog::Wdt
 };
 use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin}};
 use embedded_hal_bus::{i2c::RefCellDevice as I2cRefCellDevice, spi::RefCellDevice as SpiRefCellDevice};
 use static_cell::StaticCell;
-use crate::{gps::Gps, icm42670::Imu, lora::Radio, pin_mappings::*, println};
+use crate::{State, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*, println};
 
 /// CS pin automatically managed
 type ManagedSpi<ChipSel> = SpiRefCellDevice<'static, SensorSpi, ChipSel, SysDelay>; 
@@ -31,11 +34,13 @@ type ManagedSpi<ChipSel> = SpiRefCellDevice<'static, SensorSpi, ChipSel, SysDela
 type BareSpi = RefCell<SensorSpi>;
 type SharedI2c = I2cRefCellDevice<'static, SensorI2c>;
 
+pub type FlashMem = MX25V1606<ManagedSpi<FlashCsPin>>;
+
 /// Top-level object representing the MCU board. 
 // Not all peripherals are configured. If you need more, add their configuration code to board_config().
 pub struct McuBoard {
     pub barometer: Bmp390<SharedI2c>,
-    pub flash_mem: MX25V1606<ManagedSpi<FlashCsPin>>,
+    pub flash_mem: FlashMem,
     pub imu: Imu<SharedI2c>,
     pub delay: SysDelay,
     pub i2c: SharedI2c,
@@ -43,12 +48,119 @@ pub struct McuBoard {
     pub adc: Adc,
     pub gpio: Gpio,
     pub timer_b0: Timer<TB0>,
+    pub vref: InternalVRef,
+    pub nvmem: NonvolatileMemory,
+    bctl0_pin: Bctl0Pin,
+    bctl1_pin: Bctl1Pin,
+    pub rtc: Rtc<RtcSmclk>,
 }
 // This is where you should implement top-level functionality. 
 impl McuBoard {
     pub fn battery_voltage_mv(&mut self) -> u16 {
-        self.adc.read_voltage_mv(&mut self.gpio.half_vbat, 3300).unwrap() * 2
+        nb::block!( self.adc.read_voltage_mv(&mut self.gpio.half_vbat, 3300) ).unwrap() * 2 // Safe to unwrap
     }
+    pub fn beacon_mode(&mut self, mode: BeaconMode) {
+        // The following code relies on these assertions. If these pins are changed you will also have to change the code below.
+        assert_type_eq_all!(Bctl0Pin, Pin<P4, Pin1, Output>);
+        assert_type_eq_all!(Bctl1Pin, Pin<P4, Pin0, Output>);
+        // Write to the pout register directly so the two pins are updated at the same instant
+        let p4 = unsafe { msp430fr2355::Peripherals::steal().P4 }; // Safety: We already own P4
+
+        match mode {
+            BeaconMode::AutoSleep => { // 0b00
+                p4.p4out.modify(|r,w| unsafe{ w.bits(r.bits() & 0xFC) });
+            },
+            BeaconMode::AutoBeep => { // 0b01
+                p4.p4out.modify(|r,w| unsafe{ w.bits((r.bits() & 0xFC) | 0b01) });
+            },
+            BeaconMode::AutoActive => { // 0b10
+                p4.p4out.modify(|r,w| unsafe{ w.bits((r.bits() & 0xFC) | 0b10) });
+            },
+            BeaconMode::Manual => { // 0b11
+                p4.p4out.modify(|r,w| unsafe{ w.bits(r.bits() | 0b11) });
+            },
+        };
+    }
+}
+
+
+pub struct NonvolatileMemory {
+    info_mem: &'static mut [u8; 512]
+}
+impl NonvolatileMemory {
+    pub fn new(info_mem: &'static mut [u8; 512]) -> Self {
+        Self { info_mem }
+    }
+
+    // Info mem contents by address:
+    // 0      - Current state
+    // 1..6   - Current time
+    // 6..26  - Transition timestamps
+    // 26     - Reset counter
+    // 27..31 - Current flash memory address
+    const STATE_ADDR: usize = 0;
+    const CURRENT_TIME_ADDR: Range<usize> = 1..6;
+    const TRANSITIONS_ADDR: Range<usize> = 6..26;
+    const RESET_COUNTER_ADDR: usize = 26;
+    const WRITE_ADDR_ADDR: Range<usize> = 27..31;
+
+    pub fn try_get_state(&self) -> Option<State> {
+        State::try_from_u8(self.info_mem[Self::STATE_ADDR])
+    }
+    pub fn store_state(&mut self, state: State) {
+        self.info_mem[Self::STATE_ADDR] = state as u8;
+    }
+
+    pub fn try_get_current_time(&self) -> Option<UtcTime> {
+        UtcTime::try_from_bytes(self.info_mem[Self::CURRENT_TIME_ADDR].try_into().unwrap())
+    }
+    pub fn store_current_time(&mut self, time: &UtcTime) {
+        self.info_mem[Self::CURRENT_TIME_ADDR].copy_from_slice(&time.as_bytes());
+    }
+
+    pub fn get_transitions(&self) -> Timestamps {
+        Timestamps::from_bytes(self.info_mem[Self::TRANSITIONS_ADDR].try_into().unwrap())
+    }
+    pub fn store_transitions(&mut self, transitions: &Timestamps) {
+        self.info_mem[Self::TRANSITIONS_ADDR].copy_from_slice(&transitions.as_bytes())
+    }
+
+    pub fn get_num_resets(&self) -> u8 {
+        self.info_mem[Self::RESET_COUNTER_ADDR]
+    }
+    pub fn store_num_resets(&mut self, n_resets: u8) {
+        self.info_mem[Self::RESET_COUNTER_ADDR] = n_resets;
+    }
+    pub fn increment_resets(&mut self) {
+        self.info_mem[Self::RESET_COUNTER_ADDR] += 1;
+    }
+
+    /// Reads the flash memory current write address from memory. If it's invalid then `0` is returned.
+    pub fn get_flash_write_addr(&self) -> u32 {
+        let addr = u32::from_le_bytes(self.info_mem[Self::WRITE_ADDR_ADDR].try_into().unwrap());
+        if addr >= FlashMem::CAPACITY as u32 {0} else {addr}
+    }
+    pub fn store_flash_write_addr(&mut self, write_addr: u32) {
+        self.info_mem[Self::WRITE_ADDR_ADDR].copy_from_slice(&write_addr.to_le_bytes())
+    }
+
+    pub fn erase_all(&mut self) {
+        self.info_mem.fill(0);
+    }
+}
+
+#[derive(Copy, Clone)]
+#[repr(u8)]
+/// The mode that the beacon board is in. Driven by the bctrl0 and bctrl1 pins.
+pub enum BeaconMode {
+    /// Do nothing
+    AutoSleep = 0b00,
+    /// Buzzer active
+    AutoBeep = 0b01,
+    /// Buzzer active and forwards GPS packets to radio
+    AutoActive = 0b10,
+    /// Exposes peripherals to the stack to be driven by something else.
+    Manual = 0b11,
 }
 
 /// Top-level object representing the a stack of PCBs (namely MCU + Beacon).
@@ -66,6 +178,10 @@ pub struct Stack {
     pub radio: Radio,
     pub gpio: Gpio,
     pub timer_b0: Timer<TB0>,
+    pub vref: InternalVRef,
+    pub info_mem: NonvolatileMemory,
+    bctl0_pin: Bctl0Pin,
+    bctl1_pin: Bctl1Pin,
 }
 // This is where you should implement top-level functionality. 
 impl Stack {
@@ -83,7 +199,7 @@ pub fn standalone(regs: Peripherals) -> McuBoard {
 /// Configure the entire stack of PCBs (MCU + Beacon). The Beacon must be attached for this to succeed.
 pub fn in_stack(regs: Peripherals) -> Stack {
     let (board, smclk, _aclk, mut used, eusci_a1) = board_config(regs);
-    let McuBoard {barometer, mut delay, i2c, spi, flash_mem, adc, gpio, timer_b0, imu} = board;
+    let McuBoard {barometer, mut delay, i2c, imu, spi, flash_mem, adc, gpio, timer_b0, vref, nvmem: info_mem, bctl0_pin, bctl1_pin, rtc} = board;
 
     // LoRa radio
     used.lora_reset.set_low();
@@ -97,7 +213,7 @@ pub fn in_stack(regs: Peripherals) -> Stack {
     used.gps_reset_pin.set_low();
     delay.delay_ms(1);
     used.gps_reset_pin.set_high();
-    let (tx, rx) = SerialConfig::new(eusci_a1, 
+    let (tx, mut rx) = SerialConfig::new(eusci_a1, 
         BitOrder::LsbFirst, 
         BitCount::EightBits, 
         StopBits::OneStopBit, 
@@ -106,9 +222,10 @@ pub fn in_stack(regs: Peripherals) -> Stack {
         crate::gps::GPS_BAUDRATE)
         .use_smclk(&smclk)
         .split(used.gps_tx_pin, used.gps_rx_pin);
+    rx.enable_rx_interrupts();
     let gps = crate::gps::Gps::new(tx, rx);
 
-    Stack {barometer, delay, gps, i2c, spi, flash_mem, adc, radio, gpio, timer_b0, imu}
+    Stack {barometer, delay, gps, i2c, imu, spi, flash_mem, adc, radio, gpio, timer_b0, vref, info_mem, bctl0_pin, bctl1_pin}
 }
 
 /// Configure the MCU board, plus give back some unused bits used by other PCBs if they need to be configured later.
@@ -117,12 +234,14 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     let _wdt = Wdt::constrain(regs.WDT_A);
 
     // Configure GPIO. `used` are pins consumed by other peripherals.
-    let (mut gpio, used, external_pins) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, regs.PMM);
+    let mut pmm = Pmm::new(regs.PMM);
+    let (mut gpio, used, external_pins) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, &pmm);
+    let (bctl0_pin, bctl1_pin) = (used.bctl0_pin, used.bctl1_pin);
     
     // Configure clocks to get accurate delay timing, and used by other peripherals
     let mut fram = Fram::new(regs.FRCTL);
     let (smclk, aclk, delay) = ClockConfig::new(regs.CS)
-        .mclk_dcoclk(DcoclkFreqSel::_8MHz, MclkDiv::_1)
+        .mclk_dcoclk(DcoclkFreqSel::_24MHz, MclkDiv::_1)
         .smclk_on(SmclkDiv::_1)
         .aclk_refoclk() // 32768 Hz
         .freeze(&mut fram);
@@ -132,7 +251,7 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     println!("Serial init"); // Like this!
     
     // SPI, used by the LoRa radio
-    const SPI_FREQ_HZ: u32 = 250_000; // 250kHz is arbitrary
+    const SPI_FREQ_HZ: u32 = 8_000_000; // Max MSP430 speed
     let clk_div = (smclk.freq() / SPI_FREQ_HZ) as u16;
     let spi_bus = SpiConfig::new(regs.E_USCI_B1, embedded_hal::spi::MODE_0, true)
         .to_master_using_smclk(&smclk, clk_div) 
@@ -150,7 +269,7 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     let timer_b0 = timer_parts.timer;
 
     // I2C
-    const I2C_FREQ_HZ: u32 = 100_000;
+    const I2C_FREQ_HZ: u32 = 400_000; // Max MSP430 speed
     let clk_div = (smclk.freq() / I2C_FREQ_HZ) as u16;
     let i2c = I2cConfig::new(
         regs.E_USCI_B0, 
@@ -173,6 +292,16 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
         .use_modclk()
         .configure(regs.ADC);
 
+    let mut rtc = Rtc::new(regs.RTC).use_smclk(&smclk);
+    rtc.set_clk_div(msp430fr2x5x_hal::rtc::RtcDiv::_10);
+    rtc.enable_interrupts();
+    rtc.start((smclk.freq() / 500) as u16);
+
+    let vref = pmm.enable_internal_reference(ReferenceVoltage::_2V5).unwrap(); // Safe
+
+    let (info_mem, _) = InfoMemory::as_u8s(regs.SYS);
+    let info_mem = NonvolatileMemory::new(info_mem);
+
     // Barometer
     gpio.bmp390_adr_pin.set_low().ok();
     let config = bmp390::Configuration::default();
@@ -186,7 +315,7 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     let flash_spi = SpiRefCellDevice::new(spi, used.flash_cs_pin, delay).unwrap(); // TODO: unwrap
     let flash_mem = MX25V1606::new(flash_spi);
 
-    (McuBoard {barometer, delay, i2c: I2cRefCellDevice::new(i2c), spi, flash_mem, imu, adc, timer_b0, gpio}, smclk, aclk, external_pins, regs.E_USCI_A1)
+    (McuBoard {barometer, delay, i2c: I2cRefCellDevice::new(i2c), imu, spi, flash_mem, adc,  timer_b0, gpio, vref, nvmem: info_mem, bctl0_pin, bctl1_pin, rtc}, smclk, aclk, external_pins, regs.E_USCI_A1)
 }
 
 /// The RGB LEDs are active low, which can be a little confusing. A helper struct to reduce cognitive load.
@@ -214,8 +343,7 @@ pub struct Gpio {
     pub red_led:   RedLed,
     pub green_led: GreenLed,
     pub blue_led:  BlueLed,
-    
-    pub gps_en:         GpsEnPin,
+
     pub half_vbat:      HalfVbatPin,
 
     // PSU monitoring and control pins
@@ -236,44 +364,49 @@ pub struct Gpio {
     // Flash pins
     pub flash_wp_pin: FlashWpPin,
 
+    // Arm / disarm jumper pins
+    pub pin3_6: Pin<P3, Pin6, Output>,
+    pub arm_pin: Pin<P2, Pin3, Input<Pulldown>>,
+    pub disarm_pin: Pin<P3, Pin7, Input<Pulldown>>,
+
     // Unused UCA0 pins
     pub pin1_4: Pin<P1, Pin4, Input<Floating>>,
     pub pin1_5: Pin<P1, Pin5, Input<Floating>>,
     pub pin1_6: Pin<P1, Pin6, Input<Floating>>,
-
-    // Unused UCA1 pins
-    pub pin4_0: Pin<P4, Pin0, Input<Floating>>,
     
     // Unused ADC pins
     pub pin5_1: Pin<P5, Pin1, Input<Floating>>,
     pub pin5_3: Pin<P5, Pin3, Input<Floating>>,
 
     // Unused GPIO pins
-    pub pin2_3: Pin<P2, Pin3, Input<Floating>>,
+    
     pub pin2_6: Pin<P2, Pin6, Input<Floating>>,
     pub pin2_7: Pin<P2, Pin7, Input<Floating>>,
 
     pub pin3_4: Pin<P3, Pin4, Input<Floating>>,
     pub pin3_5: Pin<P3, Pin5, Input<Floating>>,
-    pub pin3_6: Pin<P3, Pin6, Input<Floating>>,
-    pub pin3_7: Pin<P3, Pin7, Input<Floating>>,
+    
 
     pub pin6_0: Pin<P6, Pin0, Input<Floating>>,
     pub pin6_1: Pin<P6, Pin1, Input<Floating>>,
     pub pin6_7: Pin<P6, Pin7, Input<Floating>>,
 }
 impl Gpio {
-    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, p6: P6, pmm: PMM) -> (Self, InternalUsedPins, ExternalUsedPins) {
+    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, p6: P6, pmm: &Pmm) -> (Self, InternalUsedPins, ExternalUsedPins) {
         // Configure GPIO
-        let pmm = Pmm::new(pmm);
-        let port1 = Batch::new(p1).split(&pmm);
-        let port2 = Batch::new(p2).split(&pmm);
-        let port3 = Batch::new(p3).split(&pmm);
-        let port4 = Batch::new(p4).split(&pmm);
-        let port5 = Batch::new(p5).split(&pmm);
-        let port6 = Batch::new(p6).split(&pmm);
+        let port1 = Batch::new(p1).split(pmm);
+        let port2 = Batch::new(p2).split(pmm);
+        let port3 = Batch::new(p3).split(pmm);
+        let port4 = Batch::new(p4).split(pmm);
+        let port5 = Batch::new(p5).split(pmm);
+        let port6 = Batch::new(p6).split(pmm);
 
         let half_vbat = port5.pin0.to_alternate3(); // ADC pin. Connected to Vbat/2.
+
+        let mut bctl0_pin = port4.pin1.to_output();
+        bctl0_pin.set_low(); 
+        let mut bctl1_pin = port4.pin0.to_output();
+        bctl1_pin.set_low(); 
 
         // LEDs
         let mut red_led = RedLed::new(port2.pin0.to_output());
@@ -296,8 +429,6 @@ impl Gpio {
         let gps_rx_pin = port4.pin2.to_alternate1();
         let mut gps_reset_pin = port1.pin0.to_output();
         gps_reset_pin.set_high();
-        let mut gps_en = port4.pin1.to_output(); // active low
-        gps_en.set_low();
 
         let debug_tx_pin = port1.pin7.to_alternate1();
 
@@ -319,14 +450,13 @@ impl Gpio {
 
 
         // Pins consumed by other perihperals
-        let used_internal = InternalUsedPins {mosi, miso, sclk, debug_tx_pin, i2c_scl_pin, i2c_sda_pin, flash_cs_pin};
+        let used_internal = InternalUsedPins {mosi, miso, sclk, debug_tx_pin, i2c_scl_pin, i2c_sda_pin, flash_cs_pin, bctl0_pin, bctl1_pin};
         let used_external = ExternalUsedPins {lora_cs, lora_reset, gps_rx_pin, gps_tx_pin, gps_reset_pin};
 
         let pin1_4 = port1.pin4;
         let pin1_5 = port1.pin5;
         let pin1_6 = port1.pin6;
 
-        let pin2_3 = port2.pin3;
         let pin2_6 = port2.pin6;
         let pin2_7 = port2.pin7;
 
@@ -338,10 +468,12 @@ impl Gpio {
         enable_5v.set_low();
         let pin3_4 = port3.pin4;
         let pin3_5 = port3.pin5;
-        let pin3_6 = port3.pin6;
-        let pin3_7 = port3.pin7;
 
-        let pin4_0 = port4.pin0;
+        // Used as a common for disarm and arm
+        let mut pin3_6 = port3.pin6.to_output();
+        pin3_6.set_high();
+        let disarm_pin = port3.pin7.pulldown();
+        let arm_pin = port2.pin3.pulldown();
 
         let pin5_1 = port5.pin1;
         let pin5_3 = port5.pin3;
@@ -352,17 +484,16 @@ impl Gpio {
 
         let gpio = Self {
             red_led, green_led, blue_led, 
-            gps_en, 
             half_vbat, 
             power_good_1v8, power_good_3v3, 
             enable_1v8, enable_5v,
             bmp390_adr_pin, bmp390_int_pin,
             imu_adr_pin, imu_int1_pin, imu_int2_pin,
             flash_wp_pin,
+            arm_pin, disarm_pin,
             pin1_4, pin1_5, pin1_6,
-            pin2_3, pin2_6, pin2_7,
-            pin3_4, pin3_5, pin3_6, pin3_7,
-            pin4_0,
+            pin2_6, pin2_7,
+            pin3_4, pin3_5, pin3_6,
             pin5_1, pin5_3,
             pin6_0, pin6_1, pin6_7,
         };
@@ -380,6 +511,8 @@ struct InternalUsedPins {
     i2c_scl_pin:    I2cSclPin,
     debug_tx_pin:   DebugTxPin,
     flash_cs_pin:   FlashCsPin,
+    bctl0_pin:      Bctl0Pin,
+    bctl1_pin:      Bctl1Pin
 }
 
 /// Pins used by things on other boards

@@ -37,7 +37,8 @@ pub type DebugTxPin:        = Pin<P1, Pin7, Alternate1<Input<Floating>>>;
 pub type I2cSdaPin:         = Pin<P1, Pin2, Alternate1<Input<Floating>>>;
 pub type I2cSclPin:         = Pin<P1, Pin3, Alternate1<Input<Floating>>>;
 
-pub type GpsEnPin:          = Pin<P4, Pin1, Output>;
+pub type Bctl0Pin:          = Pin<P4, Pin1, Output>;
+pub type Bctl1Pin:          = Pin<P4, Pin0, Output>;
 pub type GpsResetPin:       = Pin<P1, Pin0, Output>;
 
 pub type HalfVbatPin:       = Pin<P5, Pin0, Alternate3<Input<Floating>>>;

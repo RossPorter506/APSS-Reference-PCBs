@@ -3,6 +3,9 @@ name = "apss_mcu_pcb_firmware"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+fresh_start = []
+
 [dependencies]
 msp430 = { version = "0.4.0", features = ["critical-section-single-core"] }
 msp430-rt = "0.4.0"
@@ -20,12 +23,17 @@ embedded-hal-bus = {version = "0.3", default-features = false, features = ["port
 portable-atomic = "1.11"
 
 bmp390 = {version = "0.4", features = ["sync"]}
-icm42670 = "0.2"
+uom = { version = "0.36.0", default-features = false, features = ["f32", "si"] }
+
+icm42670 = {git = "https://github.com/rossporter506/icm42670-batch"}
 mx25v = {git = "https://github.com/rossporter506/mx25v-rs"}
 
 arrayvec = {version = "0.7", default-features = false }
 static_cell = {version = "2.1"}
 fixed = "1.29"
+
+static_assertions = "1.1"
+embedded-storage = "0.3.1"
 
 [profile.release]
 lto = "fat"
@@ -40,3 +48,6 @@ debug = true
 
 [profile.dev.package."*"]
 opt-level = "z"
+
+[lints.clippy]
+identity_op = "allow"
