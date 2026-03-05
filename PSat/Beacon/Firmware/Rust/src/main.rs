@@ -94,6 +94,7 @@ fn state_actions(board: &mut Board, mode: Mode, gps_msg_buf: &mut ArrayString<NM
         // Transmit iff we would respect the transmit duty cycle AND we have data.
         if board.radio_delay_timer.wait().is_ok() {
             if let Some(data) = gps_data.take() {
+                board.radio_delay_timer.pause();
                 // let str = data.encode_string();
                 // board.radio.transmit_start(str.as_bytes()).unwrap();
                 let bytes = data.encode_binary();
@@ -101,7 +102,7 @@ fn state_actions(board: &mut Board, mode: Mode, gps_msg_buf: &mut ArrayString<NM
             }
         }
         if board.radio.transmit_is_complete().is_ok() {
-            board.radio_delay_timer.start(board::RADIO_DELAY_MAX);
+            board.radio_delay_timer.resume();
         }
     }
 }
