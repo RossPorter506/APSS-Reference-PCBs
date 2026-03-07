@@ -22,7 +22,7 @@ embedded-lora-rfm95 = "0.3"
 embedded-hal-bus = {version = "0.3", default-features = false, features = ["portable-atomic"]}
 portable-atomic = "1.11"
 
-bmp390 = {version = "0.4", features = ["sync"]}
+bmp390 = {path = "/run/media/ross/Mirrored_Storage/GitRepos/bmp390-int/", features = ["sync"]}
 uom = { version = "0.36.0", default-features = false, features = ["f32", "si"] }
 
 icm42670 = {git = "https://github.com/rossporter506/icm42670-batch"}

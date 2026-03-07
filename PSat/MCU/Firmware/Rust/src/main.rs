@@ -5,7 +5,6 @@
 
 // External imports
 use arrayvec::ArrayVec;
-use bmp390::Measurement;
 use embedded_hal::digital::InputPin;
 use embedded_storage::nor_flash::NorFlash;
 use ::icm42670::accelerometer::vector::I16x3;
@@ -13,7 +12,7 @@ use msp430_rt::entry;
 use msp430fr2x5x_hal::lpm::enter_lpm0;
 use msp430fr2355::interrupt;
 use ufmt::derive::uDebug;
-use uom::si::{length::decimeter, pressure::pascal, thermodynamic_temperature::degree_celsius};
+use uom::si::{f32::Pressure, pressure::pascal, thermodynamic_temperature::degree_celsius};
 
 // Internal modules
 mod pin_mappings { include!("pin_mappings_v2_1.rs"); } // Import 'pin_mappings_v2_1' as 'pin_mappings'
@@ -49,6 +48,7 @@ fn main() -> ! {
     let mut current_time = system.nvmem.try_get_current_time().unwrap_or_default();
     let mut timestamps   = system.nvmem.get_transitions();
     let mut write_addr   = system.nvmem.get_flash_write_addr();
+    let mut ref_pressure = system.nvmem.try_get_calibration_pressure().unwrap_or(Pressure::new::<pascal>(101_325.0));
 
     println!("Initial state: {:?}", state);
 
@@ -59,7 +59,7 @@ fn main() -> ! {
     data.reset = true;
     
     loop {
-        state_actions(state, &mut system, &mut data, &mut write_addr, &mut is_calibrated, &current_time);
+        state_actions(state, &mut system, &mut data, &mut write_addr, &mut is_calibrated, &mut ref_pressure, &current_time);
 
         let new_state = update_state(state, &mut system, &mut timestamps, &mut data, &current_time, is_calibrated);
         state_transition_actions(new_state, state, &mut system, &mut timestamps);
@@ -77,18 +77,19 @@ fn main() -> ! {
 }
 
 /// Process (Moore-style) state-dependent actions
-fn state_actions(state: State, system: &mut McuBoard, data: &mut SensorData, write_addr: &mut u32, is_calibrated: &mut bool, current_time: &UtcTime) {
+fn state_actions(state: State, system: &mut McuBoard, data: &mut SensorData, write_addr: &mut u32, is_calibrated: &mut bool, ref_pressure: &mut Pressure, current_time: &UtcTime) {
     match state {
         State::Calibration => {
-            if let Ok(alt) = system.barometer.altitude() {
-                system.barometer.set_reference_altitude(alt);
+            if let Ok(p) = system.barometer.pressure() {
+                *ref_pressure = p;
+                system.nvmem.store_calibration_pressure(p.get::<pascal>());
                 system.nvmem.store_num_resets(0); // Reset count
                 *is_calibrated = true;
             }
         },
         State::Preflight | State::Flight => {
             // println!("Reading sensors");
-            read_sensors(data, system, current_time);
+            read_sensors(data, system, current_time, ref_pressure);
             // println!("Reading sensors done");
             if data.is_some() {
                 // println!("Writing to flash");
@@ -121,8 +122,8 @@ fn write_to_flash_mem(system: &mut McuBoard, data: ArrayVec<u8, 51>, write_addr:
         system.flash_mem.write(write_addr, data).unwrap(); // TODO: unwrap
         // println!("Write: {:?}", data);
         let mut read_buf = [0u8; 51];
-        let mut read_buff = &mut read_buf[0..data.len()];
-        system.flash_mem.read(write_addr, &mut read_buff).unwrap();
+        let read_buff = &mut read_buf[0..data.len()];
+        system.flash_mem.read(write_addr, read_buff).unwrap();
         // println!("Read back: {:?}", read_buff);
         write_addr + data.len() as u32
     } else { // write wraps around address space
@@ -185,7 +186,7 @@ impl State {
     }
 }
 
-fn read_sensors(data: &mut SensorData, system: &mut McuBoard, time: &UtcTime) {
+fn read_sensors(data: &mut SensorData, system: &mut McuBoard, time: &UtcTime, ref_pressure: &Pressure) {
     const IMU_POLL_PERIOD_MS:   u16 = 20;
     const BARO_POLL_PERIOD_MS:  u16 = 20;
     const BATT_POLL_PERIOD_MS:  u16 = 100;
@@ -198,18 +199,36 @@ fn read_sensors(data: &mut SensorData, system: &mut McuBoard, time: &UtcTime) {
         
     }
     if time.millis.is_multiple_of(BARO_POLL_PERIOD_MS) {
-        if let Ok(Measurement { pressure, temperature, altitude }) = system.barometer.measure() {
-            let pressure = pressure.get::<pascal>();
-            let temperature = temperature.get::<degree_celsius>();
-            let altitude = altitude.get::<decimeter>();
-            
-            // unsafe{ println!("Baro: {}, {}, {}", pressure.to_int_unchecked::<i32>(), temperature.to_int_unchecked::<i32>(), altitude.to_int_unchecked::<i32>()) };
-            data.baro = Some((pressure, temperature, altitude));
+        if let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
+            let altitude = fast_altitude(pressure, *ref_pressure);
+            data.baro = Some((pressure.get::<pascal>(), temperature.get::<degree_celsius>(), altitude));
         }
     }
     if time.millis.is_multiple_of(BATT_POLL_PERIOD_MS) {
         data.battery = Some(system.battery_voltage_mv());
     }
+}
+
+pub fn fast_altitude(pressure: Pressure, reference_pressure: Pressure) -> f32 {
+    8434.0 * fast_ln((reference_pressure / pressure).value)
+}
+
+pub fn fast_ln(x: f32) -> f32 {
+    // Decompose float
+    let bits = x.to_bits();
+    let exp = ((bits >> 23) & 0xff) as i32 - 127;
+
+    // Normalize mantissa to [1,2)
+    let mant_bits = (bits & 0x007f_ffff) | 0x3f80_0000;
+    let m = f32::from_bits(mant_bits);
+
+    // atanh-based log approximation
+    let y = (m - 1.0) / (m + 1.0);
+    // let y2 = y * y;
+
+    let ln_m = 2.0 * (y);
+
+    ln_m + (exp as f32) * core::f32::consts::LN_2
 }
 
 fn update_state(state: State, system: &mut McuBoard, timestamps: &mut Timestamps, data: &mut SensorData, current_time: &UtcTime, calibrated: bool) -> State {
@@ -259,12 +278,12 @@ fn update_state(state: State, system: &mut McuBoard, timestamps: &mut Timestamps
             
             // TODO: Calibrate IMU values so we actually have milli-gees 
             // Check if sqrt(x^2 + y^2 + z^2) = 9.8 +- 0.1g
-            // let not_accelerating = if let Some((acc, ..)) = data.imu { 
-            //     let x = (acc.x as i32) * 1000 / 2_048;
-            //     let y = (acc.y as i32) * 1000 / 2_048;
-            //     let z = (acc.z as i32) * 1000 / 2_048;
-            //     (x*x + y*y + z*z).abs_diff(9_800*9_800) < 100 
-            // } else { false }; 
+            let not_accelerating = if let Some((acc, ..)) = data.imu { 
+                let x = (acc.x as i32) * 1000 / 2_048;
+                let y = (acc.y as i32) * 1000 / 2_048;
+                let z = (acc.z as i32) * 1000 / 2_048;
+                (x*x + y*y + z*z).abs_diff(9_800*9_800) < 100 
+            } else { false }; 
 
             const TIMEOUT_DURATION_SEC: i32 = 60*10;
             let timeout = if let Some(flight_start) = &timestamps.flight {

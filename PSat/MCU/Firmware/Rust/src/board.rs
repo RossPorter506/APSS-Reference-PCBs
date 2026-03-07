@@ -4,6 +4,7 @@
 use bmp390::sync::Bmp390;
 use mx25v::blocking::MX25V1606;
 use static_assertions::assert_type_eq_all;
+use uom::si::{f32::Pressure, pressure::pascal};
 use core::{cell::RefCell, convert::Infallible, ops::Range};
 use msp430fr2355::Peripherals;
 use msp430fr2x5x_hal::{
@@ -98,11 +99,13 @@ impl NonvolatileMemory {
     // 6..26  - Transition timestamps
     // 26     - Reset counter
     // 27..31 - Current flash memory address
+    // 31..35 - Reference pressure
     const STATE_ADDR: usize = 0;
     const CURRENT_TIME_ADDR: Range<usize> = 1..6;
     const TRANSITIONS_ADDR: Range<usize> = 6..26;
     const RESET_COUNTER_ADDR: usize = 26;
     const WRITE_ADDR_ADDR: Range<usize> = 27..31;
+    const REF_PRESSURE_ADDR: Range<usize> = 31..35;
 
     pub fn try_get_state(&self) -> Option<State> {
         State::try_from_u8(self.info_mem[Self::STATE_ADDR])
@@ -142,6 +145,18 @@ impl NonvolatileMemory {
     }
     pub fn store_flash_write_addr(&mut self, write_addr: u32) {
         self.info_mem[Self::WRITE_ADDR_ADDR].copy_from_slice(&write_addr.to_le_bytes())
+    }
+
+    pub fn try_get_calibration_pressure(&self) -> Option<Pressure> {
+        let pressure = f32::from_le_bytes(self.info_mem[Self::REF_PRESSURE_ADDR].try_into().unwrap());
+        if (10_000.0..150_000.0).contains(&pressure) { // Range is arbitrary
+            Some(Pressure::new::<pascal>(pressure))
+        } else {
+            None
+        }
+    }
+    pub fn store_calibration_pressure(&mut self, pressure: f32) {
+        self.info_mem[Self::REF_PRESSURE_ADDR].copy_from_slice(&pressure.to_le_bytes())
     }
 
     pub fn erase_all(&mut self) {
