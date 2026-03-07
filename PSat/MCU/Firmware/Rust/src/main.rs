@@ -3,11 +3,14 @@
 #![feature(asm_experimental_arch)]
 #![feature(abi_msp430_interrupt)]
 
+use core::cell::RefCell;
+
 // External imports
 use arrayvec::ArrayVec;
 use embedded_hal::digital::InputPin;
 use embedded_storage::nor_flash::NorFlash;
 use ::icm42670::accelerometer::vector::{I16x3, I32x3};
+use msp430::{critical_section, interrupt::{Mutex, enable as enable_interrupts}};
 use msp430_rt::entry;
 use msp430fr2x5x_hal::lpm::enter_lpm0;
 use msp430fr2355::interrupt;
@@ -31,8 +34,9 @@ use crate::{board::{BeaconMode, McuBoard}, gps::{Altitude, Degrees, UtcTime}};
 const MAIN_LOOP_PERIOD_MS: u16 = 10;
 const MAIN_LOOP_FREQ_HZ: u16 = 1000 / MAIN_LOOP_PERIOD_MS;
 
+static CURRENT_TIME: Mutex<RefCell<UtcTime>> = Mutex::new(RefCell::new(UtcTime::new()));
+
 // TODO: Make UtcTime::increment work for periods that don't evenly divide into 1000
-// TODO: RTC interrupt not triggering
 // TODO: Readback from flash memory not working
 #[entry]
 fn main() -> ! {
@@ -42,6 +46,8 @@ fn main() -> ! {
     let mut system = board::standalone(regs); // Collect board elements, configure printing, etc.
     // Or if the Beacon board is attached:
     // let mut system = board::in_stack(regs);
+
+    unsafe{ enable_interrupts(); }
 
     // Printing can be expensive in terms of executable size. We only have 32kB on the MSP430, use it sparingly.
     // Prints over eUSCI A0. See board::configure() for details.
@@ -53,6 +59,7 @@ fn main() -> ! {
     // In case we just reset mid-flight, restore state, current time, any saved timestamps, etc.
     let mut state        = system.nvmem.try_get_state().unwrap_or(State::Idle);
     let mut current_time = system.nvmem.try_get_current_time().unwrap_or_default();
+    critical_section::with(|cs| CURRENT_TIME.replace(cs, current_time.clone()));
     let mut timestamps   = system.nvmem.get_transitions();
     let mut write_addr   = system.nvmem.get_flash_write_addr();
     let mut ref_pressure = system.nvmem.try_get_calibration_pressure().unwrap_or(Pressure::new::<pascal>(101_325.0));
@@ -73,11 +80,10 @@ fn main() -> ! {
         state = new_state;
 
         system.gpio.blue_led.turn_on(); // Blue LED pin serves as a counter to show how often the MCU is idle
-        nb::block!(system.rtc.wait());
-        // enter_lpm0(); // Sleep until RTC wakes us up in MAIN_LOOP_PERIOD_MS.
-
+        enter_lpm0(); // Sleep until RTC wakes us up in MAIN_LOOP_PERIOD_MS.
         system.gpio.blue_led.turn_off();
-        current_time.increment();
+
+        current_time = critical_section::with(|cs| CURRENT_TIME.borrow_ref(cs).clone());
         system.nvmem.store_current_time(&current_time);
         data = SensorData::new(current_time.clone());
     }
@@ -409,6 +415,6 @@ impl SensorData {
 
 #[interrupt(wake_cpu)] // `wake_cpu` returns the CPU to active mode after servicing interrupt 
 fn RTC() {
-    println!("RTC int");
+    critical_section::with(|cs| CURRENT_TIME.borrow_ref_mut(cs).increment());
     unsafe { msp430fr2355::Peripherals::steal().RTC.rtciv.read(); } // Clear interrupt flag
 }

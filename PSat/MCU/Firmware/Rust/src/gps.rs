@@ -145,6 +145,9 @@ pub struct UtcTime {
     pub millis: u16,
 }
 impl UtcTime {
+    pub const fn new() -> Self {
+        UtcTime { hours: 0, minutes: 0, seconds: 0, millis: 0 }
+    }
     pub fn increment(&mut self) {
         if self.millis < (1000 - MAIN_LOOP_PERIOD_MS) {
             self.millis += MAIN_LOOP_PERIOD_MS;
