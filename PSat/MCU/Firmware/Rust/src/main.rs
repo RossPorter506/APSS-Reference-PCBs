@@ -27,6 +27,8 @@ mod icm42670;
 use crate::{board::{BeaconMode, McuBoard}, gps::{Altitude, Degrees, UtcTime}};
 
 // TODO: RTC interrupt not triggering
+// TODO: Readback from flash memory not working
+// TODO: Calibrate IMU data for accel flight condition
 #[entry]
 fn main() -> ! {
     let regs = msp430fr2355::Peripherals::take().unwrap();

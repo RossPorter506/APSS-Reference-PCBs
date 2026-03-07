@@ -141,7 +141,7 @@ impl NonvolatileMemory {
     /// Reads the flash memory current write address from memory. If it's invalid then `0` is returned.
     pub fn get_flash_write_addr(&self) -> u32 {
         let addr = u32::from_le_bytes(self.info_mem[Self::WRITE_ADDR_ADDR].try_into().unwrap());
-        if addr >= FlashMem::CAPACITY as u32 {0} else {addr}
+        if addr >= FlashMem::CAPACITY {0} else {addr}
     }
     pub fn store_flash_write_addr(&mut self, write_addr: u32) {
         self.info_mem[Self::WRITE_ADDR_ADDR].copy_from_slice(&write_addr.to_le_bytes())
@@ -197,6 +197,7 @@ pub struct Stack {
     pub info_mem: NonvolatileMemory,
     bctl0_pin: Bctl0Pin,
     bctl1_pin: Bctl1Pin,
+    pub rtc: Rtc<RtcSmclk>,
 }
 // This is where you should implement top-level functionality. 
 impl Stack {
@@ -240,7 +241,7 @@ pub fn in_stack(regs: Peripherals) -> Stack {
     rx.enable_rx_interrupts();
     let gps = crate::gps::Gps::new(tx, rx);
 
-    Stack {barometer, delay, gps, i2c, imu, spi, flash_mem, adc, radio, gpio, timer_b0, vref, info_mem, bctl0_pin, bctl1_pin}
+    Stack {barometer, delay, gps, i2c, imu, spi, flash_mem, adc, radio, gpio, timer_b0, vref, info_mem, bctl0_pin, bctl1_pin, rtc}
 }
 
 /// Configure the MCU board, plus give back some unused bits used by other PCBs if they need to be configured later.

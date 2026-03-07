@@ -171,7 +171,7 @@ impl UtcTime {
     }
     pub fn as_bytes(&self) -> [u8;5] {
         let millis_bytes = self.millis.to_le_bytes();
-        return [self.hours, self.minutes, self.seconds, millis_bytes[0], millis_bytes[1]]
+        [self.hours, self.minutes, self.seconds, millis_bytes[0], millis_bytes[1]]
     }
     pub fn try_from_bytes(bytes: [u8;5]) -> Option<Self> {
         if bytes == [0xFF;5] { return None }
