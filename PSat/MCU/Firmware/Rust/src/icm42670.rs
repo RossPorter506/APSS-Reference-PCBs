@@ -79,4 +79,36 @@ impl<E:core::fmt::Debug, I: I2c<Error=E>> Imu<I> {
 
         Ok(deg)
     }
+
+    #[allow(dead_code)]
+    /// Read the built-in accelerometer, gyro, and temperature sensor, returning the values in milli-gees, milli-degrees and degrees celcius.
+    pub fn measure_millis(&mut self) -> Result<(I16x3, I32x3, i16), Error<E>> {
+        let (acc, gyro, temp_raw) = self.measure_raw()?;
+        let scale = match self.imu.accel_range()? {
+            AccelRange::G2  => 16_384, // Values from datasheet
+            AccelRange::G4  =>  8_192,
+            AccelRange::G8  =>  4_096,
+            AccelRange::G16 =>  2_048,
+        };
+        
+        let x = ((acc.x as i32 * 1000) / scale) as i16;
+        let y = ((acc.y as i32 * 1000) / scale) as i16;
+        let z = ((acc.z as i32 * 1000) / scale) as i16;
+        let acc = I16x3 {x, y, z};
+
+        let scale_10x = match self.gyro_range()? {
+            GyroRange::Deg250  => 1310, // Values from datasheet
+            GyroRange::Deg500  =>  655,
+            GyroRange::Deg1000 =>  328,
+            GyroRange::Deg2000 =>  164,
+        };
+        let x = ((gyro.x as i32 * 1000) / scale_10x) * 10;
+        let y = ((gyro.y as i32 * 1000) / scale_10x) * 10;
+        let z = ((gyro.z as i32 * 1000) / scale_10x) * 10;
+        let gyro = I32x3 {x, y, z};
+
+        let deg_c = (temp_raw / 128) + 25; // Eqn from datasheet
+
+        Ok((acc, gyro, deg_c))
+    }
 }

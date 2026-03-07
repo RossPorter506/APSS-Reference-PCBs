@@ -72,6 +72,17 @@ macro_rules! println {
     };
 }
 
+/// Prints over `eUSCI_A0` serial only if the 'debug_print' feature is enabled. Fails to print if `board::configure()` hasn't been called yet.
+#[macro_export]
+macro_rules! dbg_println {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        #[cfg(feature = "debug_print")]
+        {
+            $crate::println!($first,  $( $($rest)* )*);
+        }
+    };
+}
+
 // Make a macro equivalent to the regular println!() macro.
 /// Prints over `eUSCI_A0` serial. Panics if `board::configure()` hasn't been called yet.
 /// 

@@ -7,7 +7,7 @@
 use arrayvec::ArrayVec;
 use embedded_hal::digital::InputPin;
 use embedded_storage::nor_flash::NorFlash;
-use ::icm42670::accelerometer::vector::I16x3;
+use ::icm42670::accelerometer::vector::{I16x3, I32x3};
 use msp430_rt::entry;
 use msp430fr2x5x_hal::lpm::enter_lpm0;
 use msp430fr2355::interrupt;
@@ -34,7 +34,6 @@ const MAIN_LOOP_FREQ_HZ: u16 = 1000 / MAIN_LOOP_PERIOD_MS;
 // TODO: Make UtcTime::increment work for periods that don't evenly divide into 1000
 // TODO: RTC interrupt not triggering
 // TODO: Readback from flash memory not working
-// TODO: Calibrate IMU data for accel flight condition
 #[entry]
 fn main() -> ! {
     let regs = msp430fr2355::Peripherals::take().unwrap();
@@ -96,13 +95,9 @@ fn state_actions(state: State, system: &mut McuBoard, data: &mut SensorData, wri
             }
         },
         State::Preflight | State::Flight => {
-            // println!("Reading sensors");
             read_sensors(data, system, current_time, ref_pressure);
-            // println!("Reading sensors done");
             if data.is_some() {
-                // println!("Writing to flash");
-                *write_addr = write_to_flash_mem(system, data.encode(), *write_addr);
-                // println!("Writing to flash done");
+                *write_addr = write_to_flash_mem(system, data.encode().as_slice(), *write_addr);
                 system.nvmem.store_flash_write_addr(*write_addr);
             }
         },
@@ -123,9 +118,8 @@ fn state_transition_actions(state:State, prev_state: State, system: &mut McuBoar
     }
 }
 
-fn write_to_flash_mem(system: &mut McuBoard, data: ArrayVec<u8, 51>, write_addr: u32) -> u32 {
+fn write_to_flash_mem(system: &mut McuBoard, data: &[u8], write_addr: u32) -> u32 {
     let capacity = board::FlashMem::CAPACITY;
-    let data = data.as_slice();
     if write_addr + data.len() as u32 <= capacity {
         system.flash_mem.write(write_addr, data).unwrap(); // TODO: unwrap
         // println!("Write: {:?}", data);
@@ -204,11 +198,7 @@ fn read_sensors(data: &mut SensorData, system: &mut McuBoard, time: &UtcTime, re
     const BATT_POLL_PERIOD_MS: u16 = 1000 / BATT_POLL_FREQ_HZ;
 
     if time.millis.is_multiple_of(IMU_POLL_PERIOD_MS) {
-        data.imu = system.imu.measure_raw().ok();
-        // if let Some((I16x3 { x, y, z }, I16x3 { x: x2, y: y2, z: z2 }, temp)) = data.imu {
-        //     println!("IMU: {:?},{:?},{:?} {:?},{:?},{:?}, {:?}", x,y,z, x2,y2,z2, temp);
-        // }
-        
+        data.imu = system.imu.measure_millis().ok();
     }
     if time.millis.is_multiple_of(BARO_POLL_PERIOD_MS) {
         if let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
@@ -285,24 +275,41 @@ fn update_state(state: State, system: &mut McuBoard, timestamps: &mut Timestamps
         Flight => {
             let below_20m = if let Some(data) = data.baro {data.2 < 20.0} else { false };
 
-            // TODO: Less than 1 deg/sec in all directions
-            let not_rotating = if let Some(imu) = data.imu { imu.1.x < 50 && imu.1.y < 50 && imu.1.z < 50 } else { false }; 
-            
-            // TODO: Calibrate IMU values so we actually have milli-gees 
-            // Check if sqrt(x^2 + y^2 + z^2) = 9.8 +- 0.1g
-            let not_accelerating = if let Some((acc, ..)) = data.imu { 
-                let x = (acc.x as i32) * 1000 / 2_048;
-                let y = (acc.y as i32) * 1000 / 2_048;
-                let z = (acc.z as i32) * 1000 / 2_048;
-                (x*x + y*y + z*z).abs_diff(9_800*9_800) < 100 
+            // Gyro should read zero degrees/sec in all directions if landed / staionary
+            let not_rotating = if let Some(imu) = data.imu {
+                const TOLERANCE: u32 = 1_500; // 1.5 degrees per sec. Datasheet states zero rate output (ZRO) is +- 1 d/sec
+                let (x,y,z) = (imu.1.x, imu.1.y, imu.1.z);
+                dbg_println!("gyro x: {}md/s, y: {}md/s, z: {}md/s,", x,y,z);
+
+                x.unsigned_abs() < TOLERANCE && 
+                y.unsigned_abs() < TOLERANCE && 
+                z.unsigned_abs() < TOLERANCE 
             } else { false }; 
+            
+            // Accelerometer should read 1g if landed / stationary.
+            let not_accelerating = if let Some(imu) = data.imu {
+                // Acceleration vectors (in milli-gees: 1000 = 1g)
+                let (x,y,z) = (imu.0.x as i32, imu.0.y as i32, imu.0.z as i32);
+                dbg_println!("accel x: {} mgees, y: {} mgees, z: {} mgees,", x,y,z);
+
+                // 0.95g < sqrt(x^2 + y^2 + z^2) < 1.05g, but avoiding sqrt
+                let acceleration_squared = x*x + y*y + z*z;
+                const ONE_G: i32 = 1_000; // 1g
+                const TOLERANCE: i32 = 50; // +-0.05g
+                const LOWER_BOUND_SQUARED: i32 = (ONE_G-TOLERANCE)*(ONE_G-TOLERANCE);
+                const UPPER_BOUND_SQUARED: i32 = (ONE_G+TOLERANCE)*(ONE_G+TOLERANCE);
+
+                (LOWER_BOUND_SQUARED..UPPER_BOUND_SQUARED).contains(&acceleration_squared)
+            } else { false };
+
+            dbg_println!("Below 20m: {}, not accelerating: {}, not rotating: {}", below_20m, not_accelerating, not_rotating);
 
             const TIMEOUT_DURATION_SEC: i32 = 60*10;
             let timeout = if let Some(flight_start) = &timestamps.flight {
                 current_time.seconds_since(flight_start) > TIMEOUT_DURATION_SEC
             } else { false };
 
-            if below_20m && not_rotating || timeout {
+            if below_20m && not_accelerating && not_rotating || timeout {
                 timestamps.landed = Some(current_time.clone());
                 data.transition = Some((Flight, Landed));
                 Landed
@@ -333,8 +340,8 @@ fn is_disarmed(system: &mut McuBoard) -> bool {
 
 #[derive(Default)]
 struct SensorData {
-    pub time: UtcTime,
-    pub imu: Option<(I16x3, I16x3, i16)>, // 14B
+    pub time: UtcTime, // 5B
+    pub imu: Option<(I16x3, I32x3, i16)>, // 20B
     pub baro: Option<(f32, f32, f32)>, // 12B
     pub battery: Option<u16>, // 2B
     pub gps: Option<(Degrees, Degrees, Altitude)>, // 16B
@@ -353,7 +360,7 @@ impl SensorData {
         self.reset || 
         self.transition.is_some()
     }
-    pub fn encode(&self) -> ArrayVec<u8, 51> {
+    pub fn encode(&self) -> ArrayVec<u8, 56> {
         let mut vec = ArrayVec::new();
 
         vec.extend(self.time.as_bytes());
@@ -368,7 +375,7 @@ impl SensorData {
 
         vec.push(data_present_bitflags);
 
-        if let Some((I16x3 { x: acc_x, y: acc_y, z: acc_z }, I16x3 { x: gyro_x, y: gyro_y, z: gyro_z }, temp)) = &self.imu {
+        if let Some((I16x3 { x: acc_x, y: acc_y, z: acc_z }, I32x3 { x: gyro_x, y: gyro_y, z: gyro_z }, temp)) = &self.imu {
             vec.extend(acc_x.to_le_bytes());
             vec.extend(acc_y.to_le_bytes());
             vec.extend(acc_z.to_le_bytes());
