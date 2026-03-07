@@ -27,7 +27,7 @@ use msp430fr2x5x_hal::{
 use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin}};
 use embedded_hal_bus::{i2c::RefCellDevice as I2cRefCellDevice, spi::RefCellDevice as SpiRefCellDevice};
 use static_cell::StaticCell;
-use crate::{State, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*, println};
+use crate::{State, MAIN_LOOP_FREQ_HZ, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*, println};
 
 /// CS pin automatically managed
 type ManagedSpi<ChipSel> = SpiRefCellDevice<'static, SensorSpi, ChipSel, SysDelay>; 
@@ -309,9 +309,11 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
         .configure(regs.ADC);
 
     let mut rtc = Rtc::new(regs.RTC).use_smclk(&smclk);
-    rtc.set_clk_div(msp430fr2x5x_hal::rtc::RtcDiv::_10);
+    rtc.set_clk_div(msp430fr2x5x_hal::rtc::RtcDiv::_64);
     rtc.enable_interrupts();
-    rtc.start((smclk.freq() / 500) as u16);
+    rtc.start((smclk.freq() / (64*MAIN_LOOP_FREQ_HZ as u32)) as u16);
+    const { assert!( MAIN_LOOP_FREQ_HZ < 1000 && MAIN_LOOP_FREQ_HZ > 10) }
+    // const {assert!( (MCLK.freq() / (prescaler.value() * TARGET_LOOP_FREQ_HZ)) < u16::MAX )} // TODO: Make the necessary functions for this assert const in the HAL
 
     let vref = pmm.enable_internal_reference(ReferenceVoltage::_2V5).unwrap(); // Safe
 

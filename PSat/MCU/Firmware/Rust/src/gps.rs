@@ -6,7 +6,7 @@ use arrayvec::{ArrayString, ArrayVec};
 use msp430fr2x5x_hal::serial::RecvError;
 use embedded_hal_nb::serial::Read;
 use ufmt::{derive::uDebug, uDisplay, uwrite};
-use crate::pin_mappings::{GpsRx, GpsTx};
+use crate::{MAIN_LOOP_PERIOD_MS, pin_mappings::{GpsRx, GpsTx}};
 
 pub const GPS_BAUDRATE: u32 = 115200;
 pub const NMEA_MESSAGE_MAX_LEN: usize = 82;
@@ -146,8 +146,8 @@ pub struct UtcTime {
 }
 impl UtcTime {
     pub fn increment(&mut self) {
-        if self.millis < 980 {
-            self.millis += 20;
+        if self.millis < (1000 - MAIN_LOOP_PERIOD_MS) {
+            self.millis += MAIN_LOOP_PERIOD_MS;
             return;
         }
         self.millis = 0;

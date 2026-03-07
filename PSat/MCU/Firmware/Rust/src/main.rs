@@ -26,6 +26,12 @@ mod icm42670;
 // Internal imports
 use crate::{board::{BeaconMode, McuBoard}, gps::{Altitude, Degrees, UtcTime}};
 
+// How often the main loop cycles through. If this is set faster than the main loop takes, then timekeeping will fail.
+// Currently this period has to cleanly divide into 1000 due to `UtcTime::increment()`
+const MAIN_LOOP_PERIOD_MS: u16 = 10;
+const MAIN_LOOP_FREQ_HZ: u16 = 1000 / MAIN_LOOP_PERIOD_MS;
+
+// TODO: Make UtcTime::increment work for periods that don't evenly divide into 1000
 // TODO: RTC interrupt not triggering
 // TODO: Readback from flash memory not working
 // TODO: Calibrate IMU data for accel flight condition
@@ -69,7 +75,7 @@ fn main() -> ! {
 
         system.gpio.blue_led.turn_on(); // Blue LED pin serves as a counter to show how often the MCU is idle
         nb::block!(system.rtc.wait());
-        // enter_lpm0(); // Sleep until RTC wakes us up in 1ms.
+        // enter_lpm0(); // Sleep until RTC wakes us up in MAIN_LOOP_PERIOD_MS.
 
         system.gpio.blue_led.turn_off();
         current_time.increment();
@@ -189,9 +195,13 @@ impl State {
 }
 
 fn read_sensors(data: &mut SensorData, system: &mut McuBoard, time: &UtcTime, ref_pressure: &Pressure) {
-    const IMU_POLL_PERIOD_MS:   u16 = 20;
-    const BARO_POLL_PERIOD_MS:  u16 = 20;
-    const BATT_POLL_PERIOD_MS:  u16 = 100;
+    const IMU_POLL_FREQ_HZ:    u16 = MAIN_LOOP_FREQ_HZ * 1; // poll every loop
+    const BARO_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ * 1;
+    const BATT_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 10; // poll once every 10 loops
+
+    const IMU_POLL_PERIOD_MS:  u16 = 1000 / IMU_POLL_FREQ_HZ;
+    const BARO_POLL_PERIOD_MS: u16 = 1000 / BARO_POLL_FREQ_HZ;
+    const BATT_POLL_PERIOD_MS: u16 = 1000 / BATT_POLL_FREQ_HZ;
 
     if time.millis.is_multiple_of(IMU_POLL_PERIOD_MS) {
         data.imu = system.imu.measure_raw().ok();
