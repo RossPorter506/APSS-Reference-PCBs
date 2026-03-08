@@ -4,11 +4,7 @@
 #![feature(abi_msp430_interrupt)]
 
 use core::cell::RefCell;
-
-// External imports
 use arrayvec::ArrayVec;
-use embedded_hal::digital::InputPin;
-use embedded_storage::nor_flash::NorFlash;
 use ::icm42670::accelerometer::vector::{I16x3, I32x3};
 use msp430::{critical_section, interrupt::{Mutex, enable as enable_interrupts}};
 use msp430_rt::entry;
@@ -27,7 +23,7 @@ mod gps;
 mod icm42670;
 
 // Internal imports
-use crate::{board::{BeaconMode, McuBoard}, gps::{Altitude, Degrees, UtcTime}};
+use crate::{board::{BeaconMode, McuBoard, NonvolatileMemory}, gps::{Altitude, Degrees, UtcTime}};
 
 // How often the main loop cycles through. If this is set faster than the main loop takes, then timekeeping will fail.
 // Currently this period has to cleanly divide into 1000 due to `UtcTime::increment()`
@@ -53,120 +49,229 @@ fn main() -> ! {
     // Prints over eUSCI A0. See board::configure() for details.
     println!("Hello world!");
 
+    // The 'fresh_start' feature will make the board reset from Idle every time.
+    // Useful for testing, but for flight this should NOT be enabled
+    // as otherwise any resets during flight will reset the state machine too.
     #[cfg(feature = "fresh_start")]
     system.nvmem.erase_all();
 
     // In case we just reset mid-flight, restore state, current time, any saved timestamps, etc.
-    let mut state        = system.nvmem.try_get_state().unwrap_or(State::Idle);
-    let mut current_time = system.nvmem.try_get_current_time().unwrap_or_default();
+    let current_time = system.nvmem.try_get_current_time().unwrap_or_default();
+    // Load current time into global that's incremented by the RTC interrupt
     critical_section::with(|cs| CURRENT_TIME.replace(cs, current_time.clone()));
-    let mut timestamps   = system.nvmem.get_transitions();
-    let mut write_addr   = system.nvmem.get_flash_write_addr();
-    let mut ref_pressure = system.nvmem.try_get_calibration_pressure().unwrap_or(Pressure::new::<pascal>(101_325.0));
-
-    println!("Initial state: {:?}", state);
-
-    let mut data = SensorData::new(current_time.clone());
-    let mut is_calibrated = state > State::Calibration;
-
+    // Load state machine data from non-volatile memory
+    let mut state_machine = StateMachine::restore_from_nvmem(&system.nvmem, current_time.clone());
     system.nvmem.increment_resets();
-    data.reset = true;
     
     loop {
-        state_actions(state, &mut system, &mut data, &mut write_addr, &mut is_calibrated, &mut ref_pressure, &current_time);
-
-        let new_state = update_state(state, &mut system, &mut timestamps, &mut data, &current_time, is_calibrated);
-        state_transition_actions(new_state, state, &mut system, &mut timestamps);
-        state = new_state;
+        state_machine.process(&mut system);
 
         system.gpio.blue_led.turn_on(); // Blue LED pin serves as a counter to show how often the MCU is idle
         enter_lpm0(); // Sleep until RTC wakes us up in MAIN_LOOP_PERIOD_MS.
         system.gpio.blue_led.turn_off();
 
-        current_time = critical_section::with(|cs| CURRENT_TIME.borrow_ref(cs).clone());
-        system.nvmem.store_current_time(&current_time);
-        data = SensorData::new(current_time.clone());
+        // After RTC interrupt wakes us up the time is updated
+        let new_time = critical_section::with(|cs| CURRENT_TIME.borrow_ref(cs).clone());
+        system.nvmem.store_current_time(&new_time);
+        state_machine.update_time(new_time);
     }
 }
 
-/// Process (Moore-style) state-dependent actions
-fn state_actions(state: State, system: &mut McuBoard, data: &mut SensorData, write_addr: &mut u32, is_calibrated: &mut bool, ref_pressure: &mut Pressure, current_time: &UtcTime) {
-    match state {
-        State::Calibration => {
-            if let Ok(p) = system.barometer.pressure() {
-                *ref_pressure = p;
-                system.nvmem.store_calibration_pressure(p.get::<pascal>());
-                system.nvmem.store_num_resets(0); // Reset count
-                *is_calibrated = true;
-            }
-        },
-        State::Preflight | State::Flight => {
-            read_sensors(data, system, current_time, ref_pressure);
-            if data.is_some() {
-                *write_addr = write_to_flash_mem(system, data.encode().as_slice(), *write_addr);
-                system.nvmem.store_flash_write_addr(*write_addr);
-            }
-        },
-        _ => (),
-    };
+/// Top-level struct that manages mission status, states, actions, and transitions.
+struct StateMachine {
+    state: State,
+    is_calibrated: bool,
+    flash_write_addr: u32,
+    ref_pressure: Pressure,
+    current_time: UtcTime,
+    timestamps: Timestamps,
+    data: SensorData,
 }
+impl StateMachine {
+    /// Restore state machine data from non-volatile memory.
+    pub fn restore_from_nvmem(nvmem: &NonvolatileMemory, current_time: UtcTime) -> Self {
+        let state            = nvmem.try_get_state().unwrap_or(State::Idle);
+        println!("Initial state: {:?}", state);
+        let is_calibrated = state > State::Calibration;
 
-/// Process actions that should occur once when transitioning between states (Mealy-style)
-fn state_transition_actions(state:State, prev_state: State, system: &mut McuBoard, timestamps: &mut Timestamps) {
-    if prev_state != state {
-        match state {
-            State::Idle | State::Recovered => system.beacon_mode(BeaconMode::AutoSleep),
-            _ => system.beacon_mode(BeaconMode::AutoActive),
+        let timestamps       = nvmem.get_transitions();
+        let flash_write_addr = nvmem.get_flash_write_addr();
+        let ref_pressure     = nvmem.try_get_calibration_pressure().unwrap_or(Pressure::new::<pascal>(101_325.0));
+
+        let mut data = SensorData::new(current_time.clone());
+        data.reset = true;
+
+        Self { state, is_calibrated, flash_write_addr, ref_pressure, current_time, timestamps, data }
+    }
+
+    /// Update internal time and also clears data, ready for next iteration
+    pub fn update_time(&mut self, current_time: UtcTime) {
+        self.current_time = current_time.clone();
+        self.data = SensorData::new(current_time);
+    }
+
+    /// Process state actions and update state
+    pub fn process(&mut self, system: &mut McuBoard) {
+        self.state_actions(system);
+        let new_state = self.next_state(system);
+        self.state_transition_actions(new_state, system);
+        self.state = new_state;
+    }
+
+    /// Perform actions that should be executed while in a particular mode (Moore-style)
+    fn state_actions(&mut self, system: &mut McuBoard) {
+        match self.state {
+            State::Calibration => {
+                if let Ok(p) = system.barometer.pressure() {
+                    self.ref_pressure = p;
+                    system.nvmem.store_calibration_pressure(p.get::<pascal>());
+                    system.nvmem.store_num_resets(0); // Reset count
+                    self.is_calibrated = true;
+                }
+            },
+            State::Preflight | State::Flight => {
+                self.read_sensors(system);
+                if self.data.is_some() {
+                    self.flash_write_addr = system.flash_write_wrapping(self.data.encode().as_slice(), self.flash_write_addr);
+                    system.nvmem.store_flash_write_addr(self.flash_write_addr);
+                }
+            },
+            _ => (),
         };
-        println!("New state: {:?}", state);
-        system.nvmem.store_state(state);
-        system.nvmem.store_transitions(timestamps);
     }
-}
 
-fn write_to_flash_mem(system: &mut McuBoard, data: &[u8], write_addr: u32) -> u32 {
-    let capacity = board::FlashMem::CAPACITY;
-    if write_addr + data.len() as u32 <= capacity {
-        system.flash_mem.write(write_addr, data).unwrap(); // TODO: unwrap
-        // println!("Write: {:?}", data);
-        let mut read_buf = [0u8; SensorData::MAX_SIZE];
-        let read_buff = &mut read_buf[0..data.len()];
-        system.flash_mem.read(write_addr, read_buff).unwrap();
-        // println!("Read back: {:?}", read_buff);
-        write_addr + data.len() as u32
-    } else { // write wraps around address space
-        let remaining = (capacity - write_addr) as usize;
-        let (data1, data2) = data.split_at(remaining);
-        system.flash_mem.write(write_addr, data1).unwrap(); // TODO: unwrap
-        system.flash_mem.write(0, data2).unwrap(); // TODO: unwrap
-        data2.len() as u32
+    /// Perform actions that should occur once when transitioning between states (Mealy-style)
+    fn state_transition_actions(&mut self, new_state: State, system: &mut McuBoard) {
+        if new_state != self.state {
+            match new_state {
+                State::Idle | State::Recovered => system.beacon_mode(BeaconMode::AutoSleep),
+                _ => system.beacon_mode(BeaconMode::AutoActive),
+            };
+            println!("New state: {:?}", new_state);
+            system.nvmem.store_state(new_state);
+            system.nvmem.store_transitions(&self.timestamps);
+        }
     }
-}
 
-#[derive(Default)]
-struct Timestamps {
-    preflight: Option<UtcTime>,
-    flight: Option<UtcTime>,
-    landed: Option<UtcTime>,
-    recovered: Option<UtcTime>,
-}
-impl Timestamps {
-    pub fn from_bytes(bytes: &[u8;20] ) -> Self {
-        let preflight = UtcTime::try_from_bytes(bytes[0..5].try_into().unwrap());
-        let flight    = UtcTime::try_from_bytes(bytes[5..10].try_into().unwrap());
-        let landed    = UtcTime::try_from_bytes(bytes[10..15].try_into().unwrap());
-        let recovered = UtcTime::try_from_bytes(bytes[15..20].try_into().unwrap());
+    /// Determine what the next state ought to be
+    fn next_state(&mut self, system: &mut McuBoard) -> State {
+        use State::*;
 
-        Timestamps { preflight, flight, landed, recovered } 
+        // Short circuit to Recovered if disarmed
+        if self.state != Landed && self.state != Recovered && system.is_disarmed() {
+            self.data.transition = Some((self.state, Recovered));
+            return Recovered;
+        }
+
+        match self.state {
+            Idle => {
+                if system.is_armed() {
+                    self.data.transition = Some((Idle, Calibration));
+                    Calibration
+                } else {
+                    Idle
+                }
+            },
+            Calibration => {
+                if self.is_calibrated {
+                    self.timestamps.preflight = Some(self.current_time.clone());
+                    self.data.transition = Some((Calibration, Preflight));
+                    Preflight
+                } else {
+                    Calibration
+                }
+            },
+            Preflight => {
+                let above_20m = self.data.baro.unwrap_or_default().2 > 20.0;
+                let above_2gs = self.data.imu.unwrap_or_default().0.z > 2_000;
+
+                if above_20m || above_2gs {
+                    self.timestamps.flight = Some(self.current_time.clone());
+                    self.data.transition = Some((Preflight, Flight));
+                    Flight
+                } else {
+                    Preflight
+                }
+            },
+            Flight => {
+                let below_20m = if let Some(data) = self.data.baro {data.2 < 20.0} else { false };
+
+                // Gyro should read zero degrees/sec in all directions if landed / staionary
+                let not_rotating = if let Some(imu) = self.data.imu {
+                    const TOLERANCE: u32 = 1_500; // 1.5 degrees per sec. Datasheet states zero rate output (ZRO) is +- 1 d/sec
+                    let (x,y,z) = (imu.1.x, imu.1.y, imu.1.z);
+                    dbg_println!("gyro x: {}md/s, y: {}md/s, z: {}md/s,", x,y,z);
+
+                    x.unsigned_abs() < TOLERANCE && 
+                    y.unsigned_abs() < TOLERANCE && 
+                    z.unsigned_abs() < TOLERANCE 
+                } else { false }; 
+                
+                // Accelerometer should read 1g if landed / stationary.
+                let not_accelerating = if let Some(imu) = self.data.imu {
+                    // Acceleration vectors (in milli-gees: 1000 = 1g)
+                    let (x,y,z) = (imu.0.x as i32, imu.0.y as i32, imu.0.z as i32);
+                    dbg_println!("accel x: {} mgees, y: {} mgees, z: {} mgees,", x,y,z);
+
+                    // 0.95g < sqrt(x^2 + y^2 + z^2) < 1.05g, but avoiding sqrt
+                    let acceleration_squared = x*x + y*y + z*z;
+                    const ONE_G: i32 = 1_000; // 1g
+                    const TOLERANCE: i32 = 50; // +-0.05g
+                    const LOWER_BOUND_SQUARED: i32 = (ONE_G-TOLERANCE)*(ONE_G-TOLERANCE);
+                    const UPPER_BOUND_SQUARED: i32 = (ONE_G+TOLERANCE)*(ONE_G+TOLERANCE);
+
+                    (LOWER_BOUND_SQUARED..UPPER_BOUND_SQUARED).contains(&acceleration_squared)
+                } else { false };
+
+                dbg_println!("Below 20m: {}, not accelerating: {}, not rotating: {}", below_20m, not_accelerating, not_rotating);
+
+                const TIMEOUT_DURATION_SEC: i32 = 60*8;
+                let timeout = if let Some(flight_start) = &self.timestamps.flight {
+                    self.current_time.seconds_since(flight_start) > TIMEOUT_DURATION_SEC
+                } else { false };
+
+                if below_20m && not_accelerating && not_rotating || timeout {
+                    self.timestamps.landed = Some(self.current_time.clone());
+                    self.data.transition = Some((Flight, Landed));
+                    Landed
+                } else {
+                    Flight
+                }
+            },
+            Landed => {
+                if system.is_disarmed() {
+                    self.timestamps.recovered = Some(self.current_time.clone());
+                    self.data.transition = Some((Landed, Recovered));
+                    Recovered
+                } else {
+                    Landed
+                }
+            },
+            Recovered => Recovered,
+        }
     }
-    pub fn as_bytes(&self) -> [u8; 20] {
-        let mut arr = [0xFFu8; 20];
-        for (i, opt) in [&self.preflight, &self.flight, &self.landed, &self.recovered].iter().enumerate() {
-            if let Some(time) = opt {
-                arr[5*i..5*i+5].copy_from_slice(&time.as_bytes());
+
+    fn read_sensors(&mut self, system: &mut McuBoard) {
+        const IMU_POLL_FREQ_HZ:    u16 = MAIN_LOOP_FREQ_HZ / 1; // poll every loop
+        const BARO_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 1;
+        const BATT_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 10; // poll once every 10 loops
+
+        const IMU_POLL_PERIOD_MS:  u16 = 1000 / IMU_POLL_FREQ_HZ;
+        const BARO_POLL_PERIOD_MS: u16 = 1000 / BARO_POLL_FREQ_HZ;
+        const BATT_POLL_PERIOD_MS: u16 = 1000 / BATT_POLL_FREQ_HZ;
+
+        if self.current_time.millis.is_multiple_of(IMU_POLL_PERIOD_MS) {
+            self.data.imu = system.imu.measure_millis().ok();
+        }
+        if self.current_time.millis.is_multiple_of(BARO_POLL_PERIOD_MS) {
+            if let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
+                let altitude = fast_altitude(pressure, self.ref_pressure);
+                self.data.baro = Some((pressure.get::<pascal>(), temperature.get::<degree_celsius>(), altitude));
             }
         }
-        arr
+        if self.current_time.millis.is_multiple_of(BATT_POLL_PERIOD_MS) {
+            self.data.battery = Some(system.battery_voltage_mv());
+        }
     }
 }
 
@@ -194,33 +299,13 @@ impl State {
     }
 }
 
-fn read_sensors(data: &mut SensorData, system: &mut McuBoard, time: &UtcTime, ref_pressure: &Pressure) {
-    const IMU_POLL_FREQ_HZ:    u16 = MAIN_LOOP_FREQ_HZ * 1; // poll every loop
-    const BARO_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ * 1;
-    const BATT_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 10; // poll once every 10 loops
-
-    const IMU_POLL_PERIOD_MS:  u16 = 1000 / IMU_POLL_FREQ_HZ;
-    const BARO_POLL_PERIOD_MS: u16 = 1000 / BARO_POLL_FREQ_HZ;
-    const BATT_POLL_PERIOD_MS: u16 = 1000 / BATT_POLL_FREQ_HZ;
-
-    if time.millis.is_multiple_of(IMU_POLL_PERIOD_MS) {
-        data.imu = system.imu.measure_millis().ok();
-    }
-    if time.millis.is_multiple_of(BARO_POLL_PERIOD_MS) {
-        if let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
-            let altitude = fast_altitude(pressure, *ref_pressure);
-            data.baro = Some((pressure.get::<pascal>(), temperature.get::<degree_celsius>(), altitude));
-        }
-    }
-    if time.millis.is_multiple_of(BATT_POLL_PERIOD_MS) {
-        data.battery = Some(system.battery_voltage_mv());
-    }
-}
-
+/// Approximate pressure -> altitude conversion.
+/// Assumes a linear pressure decrease per altitude, reasonable up to ~2km
 pub fn fast_altitude(pressure: Pressure, reference_pressure: Pressure) -> f32 {
     8434.0 * fast_ln((reference_pressure / pressure).value)
 }
 
+/// Fast natural log approximation
 pub fn fast_ln(x: f32) -> f32 {
     // Decompose float
     let bits = x.to_bits();
@@ -234,114 +319,37 @@ pub fn fast_ln(x: f32) -> f32 {
     let y = (m - 1.0) / (m + 1.0);
     // let y2 = y * y;
 
-    let ln_m = 2.0 * (y);
+    // Increase accuracy with 2.0 * (y + y^3/3 + y^5/5 + ...)
+    let ln_m = 2.0 * y;
 
     ln_m + (exp as f32) * core::f32::consts::LN_2
 }
 
-fn update_state(state: State, system: &mut McuBoard, timestamps: &mut Timestamps, data: &mut SensorData, current_time: &UtcTime, calibrated: bool) -> State {
-    use State::*;
-
-    // Short circuit to Recovered if disarmed
-    if state != Landed && state != Recovered && is_disarmed(system) {
-        data.transition = Some((state, Recovered));
-        return Recovered;
-    }
-
-    match state {
-        Idle => {
-            if is_armed(system) {
-                data.transition = Some((Idle, Calibration));
-                Calibration
-            } else {
-                Idle
-            }
-        },
-        Calibration => {
-            if calibrated {
-                timestamps.preflight = Some(current_time.clone());
-                data.transition = Some((Calibration, Preflight));
-                Preflight
-            } else {
-                Calibration
-            }
-        },
-        Preflight => {
-            let above_20m = data.baro.unwrap_or_default().2 > 20.0;
-            let above_2gs = data.imu.unwrap_or_default().0.z > 2_000;
-
-            if above_20m || above_2gs {
-                timestamps.flight = Some(current_time.clone());
-                data.transition = Some((Preflight, Flight));
-                Flight
-            } else {
-                Preflight
-            }
-        },
-        Flight => {
-            let below_20m = if let Some(data) = data.baro {data.2 < 20.0} else { false };
-
-            // Gyro should read zero degrees/sec in all directions if landed / staionary
-            let not_rotating = if let Some(imu) = data.imu {
-                const TOLERANCE: u32 = 1_500; // 1.5 degrees per sec. Datasheet states zero rate output (ZRO) is +- 1 d/sec
-                let (x,y,z) = (imu.1.x, imu.1.y, imu.1.z);
-                dbg_println!("gyro x: {}md/s, y: {}md/s, z: {}md/s,", x,y,z);
-
-                x.unsigned_abs() < TOLERANCE && 
-                y.unsigned_abs() < TOLERANCE && 
-                z.unsigned_abs() < TOLERANCE 
-            } else { false }; 
-            
-            // Accelerometer should read 1g if landed / stationary.
-            let not_accelerating = if let Some(imu) = data.imu {
-                // Acceleration vectors (in milli-gees: 1000 = 1g)
-                let (x,y,z) = (imu.0.x as i32, imu.0.y as i32, imu.0.z as i32);
-                dbg_println!("accel x: {} mgees, y: {} mgees, z: {} mgees,", x,y,z);
-
-                // 0.95g < sqrt(x^2 + y^2 + z^2) < 1.05g, but avoiding sqrt
-                let acceleration_squared = x*x + y*y + z*z;
-                const ONE_G: i32 = 1_000; // 1g
-                const TOLERANCE: i32 = 50; // +-0.05g
-                const LOWER_BOUND_SQUARED: i32 = (ONE_G-TOLERANCE)*(ONE_G-TOLERANCE);
-                const UPPER_BOUND_SQUARED: i32 = (ONE_G+TOLERANCE)*(ONE_G+TOLERANCE);
-
-                (LOWER_BOUND_SQUARED..UPPER_BOUND_SQUARED).contains(&acceleration_squared)
-            } else { false };
-
-            dbg_println!("Below 20m: {}, not accelerating: {}, not rotating: {}", below_20m, not_accelerating, not_rotating);
-
-            const TIMEOUT_DURATION_SEC: i32 = 60*8;
-            let timeout = if let Some(flight_start) = &timestamps.flight {
-                current_time.seconds_since(flight_start) > TIMEOUT_DURATION_SEC
-            } else { false };
-
-            if below_20m && not_accelerating && not_rotating || timeout {
-                timestamps.landed = Some(current_time.clone());
-                data.transition = Some((Flight, Landed));
-                Landed
-            } else {
-                Flight
-            }
-        },
-        Landed => {
-            if is_disarmed(system) {
-                timestamps.recovered = Some(current_time.clone());
-                data.transition = Some((Landed, Recovered));
-                Recovered
-            } else {
-                Landed
-            }
-        },
-        Recovered => Recovered,
-    }
+#[derive(Default)]
+struct Timestamps {
+    preflight: Option<UtcTime>,
+    flight: Option<UtcTime>,
+    landed: Option<UtcTime>,
+    recovered: Option<UtcTime>,
 }
+impl Timestamps {
+    pub fn from_bytes(bytes: &[u8;20] ) -> Self {
+        let preflight = UtcTime::try_from_bytes(bytes[0..5].try_into().unwrap());
+        let flight    = UtcTime::try_from_bytes(bytes[5..10].try_into().unwrap());
+        let landed    = UtcTime::try_from_bytes(bytes[10..15].try_into().unwrap());
+        let recovered = UtcTime::try_from_bytes(bytes[15..20].try_into().unwrap());
 
-fn is_armed(system: &mut McuBoard) -> bool {
-    system.gpio.arm_pin.is_low().unwrap() // Infallible unwrap
-}
+        Timestamps { preflight, flight, landed, recovered } 
+    }
+    pub fn as_bytes(&self) -> [u8; 20] {
+        let mut arr = [0xFFu8; 20];
+        if let Some(time) = &self.preflight { arr[0..5].copy_from_slice(&time.as_bytes()); }
+        if let Some(time) = &self.flight    { arr[5..10].copy_from_slice(&time.as_bytes()); }
+        if let Some(time) = &self.landed    { arr[10..15].copy_from_slice(&time.as_bytes()); }
+        if let Some(time) = &self.recovered { arr[15..20].copy_from_slice(&time.as_bytes()); }
 
-fn is_disarmed(system: &mut McuBoard) -> bool {
-    system.gpio.disarm_pin.is_high().unwrap() // Infallible unwrap
+        arr
+    }
 }
 
 #[derive(Default)]

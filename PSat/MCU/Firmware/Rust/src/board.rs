@@ -2,10 +2,11 @@
 
 #![allow(dead_code)]
 use bmp390::sync::Bmp390;
+use embedded_storage::nor_flash::NorFlash;
 use mx25v::blocking::MX25V1606;
 use static_assertions::assert_type_eq_all;
 use uom::si::{f32::Pressure, pressure::pascal};
-use core::{cell::RefCell, convert::Infallible, ops::Range};
+use core::{cell::RefCell, convert::Infallible, ops::{Deref, DerefMut, Range}};
 use msp430fr2355::Peripherals;
 use msp430fr2x5x_hal::{
     adc::{Adc, AdcConfig, ClockDivider, Predivider, Resolution, SampleTime, SamplingRate}, 
@@ -24,10 +25,10 @@ use msp430fr2x5x_hal::{
     timer::{Timer, TimerParts3}, 
     watchdog::Wdt
 };
-use embedded_hal::{delay::DelayNs, digital::{OutputPin, StatefulOutputPin}};
+use embedded_hal::{delay::DelayNs, digital::{InputPin, OutputPin, StatefulOutputPin}};
 use embedded_hal_bus::{i2c::RefCellDevice as I2cRefCellDevice, spi::RefCellDevice as SpiRefCellDevice};
 use static_cell::StaticCell;
-use crate::{State, MAIN_LOOP_FREQ_HZ, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*, println};
+use crate::{MAIN_LOOP_FREQ_HZ, SensorData, State, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*, println};
 
 /// CS pin automatically managed
 type ManagedSpi<ChipSel> = SpiRefCellDevice<'static, SensorSpi, ChipSel, SysDelay>; 
@@ -60,7 +61,7 @@ impl McuBoard {
     pub fn battery_voltage_mv(&mut self) -> u16 {
         nb::block!( self.adc.read_voltage_mv(&mut self.gpio.half_vbat, 3300) ).unwrap() * 2 // Safe to unwrap
     }
-    pub fn beacon_mode(&mut self, mode: BeaconMode) {
+    pub fn beacon_mode(&mut self, mode: BeaconMode) { // Yes this involves the beacon board, but it uses the MCU GPIO pins
         // The following code relies on these assertions. If these pins are changed you will also have to change the code below.
         assert_type_eq_all!(Bctl0Pin, Pin<P4, Pin1, Output>);
         assert_type_eq_all!(Bctl1Pin, Pin<P4, Pin0, Output>);
@@ -82,8 +83,37 @@ impl McuBoard {
             },
         };
     }
-}
 
+    /// Whether the board is armed. Until the board is armed it's locked into the 'idle' state.
+    pub fn is_armed(&mut self) -> bool {
+        self.gpio.arm_pin.is_low().unwrap() // Infallible unwrap
+    }
+
+    /// Whether the board is disarmed. When disarmed the board is locked into the 'recovered' state.
+    pub fn is_disarmed(&mut self) -> bool {
+        self.gpio.disarm_pin.is_high().unwrap() // Infallible unwrap
+    }
+
+    /// Write to the flash memory, wrapping around the address space as needed.
+    pub fn flash_write_wrapping(&mut self, data: &[u8], write_addr: u32) -> u32 {
+        let capacity = FlashMem::CAPACITY;
+        if write_addr + data.len() as u32 <= capacity {
+            self.flash_mem.write(write_addr, data).unwrap(); // TODO: unwrap
+            println!("Write: {:?}", data); // TODO: Remove readback
+            let mut read_buf = [0u8; SensorData::MAX_SIZE];
+            let read_buff = &mut read_buf[0..data.len()];
+            self.flash_mem.read(write_addr, read_buff).unwrap();
+            println!("Read back: {:?}", read_buff);
+            write_addr + data.len() as u32
+        } else { // write wraps around address space
+            let remaining = (capacity - write_addr) as usize;
+            let (data1, data2) = data.split_at(remaining);
+            self.flash_mem.write(write_addr, data1).unwrap(); // TODO: unwrap
+            self.flash_mem.write(0, data2).unwrap(); // TODO: unwrap
+            data2.len() as u32
+        }
+    }
+}
 
 pub struct NonvolatileMemory {
     info_mem: &'static mut [u8; 512]
@@ -180,29 +210,27 @@ pub enum BeaconMode {
 
 /// Top-level object representing the a stack of PCBs (namely MCU + Beacon).
 /// 
-// If you need more, add their configuration code to is_stack().
+// If you need more, add their configuration code to in_stack().
 pub struct Stack {
-    pub barometer: Bmp390<SharedI2c>,
-    pub flash_mem: MX25V1606<ManagedSpi<FlashCsPin>>,
-    pub imu: Imu<SharedI2c>,
-    pub delay: SysDelay,
+    pub board: McuBoard,
     pub gps: Gps,
-    pub i2c: SharedI2c,
-    pub spi: &'static BareSpi,
-    pub adc: Adc,
     pub radio: Radio,
-    pub gpio: Gpio,
-    pub timer_b0: Timer<TB0>,
-    pub vref: InternalVRef,
-    pub info_mem: NonvolatileMemory,
-    bctl0_pin: Bctl0Pin,
-    bctl1_pin: Bctl1Pin,
-    pub rtc: Rtc<RtcSmclk>,
 }
-// This is where you should implement top-level functionality. 
+// This is where you should implement top-level functionality unique to a stack. 
 impl Stack {
-    pub fn battery_voltage_mv(&mut self) -> u16 {
-        self.adc.read_voltage_mv(&mut self.gpio.half_vbat, 3300).unwrap() * 2
+
+}
+// Transparently implement all McuBoard methods and fields onto Stack
+// This means we can specify `stack.imu` and have it coerced to `stack.board.imu`, for instance.
+impl Deref for Stack {
+    type Target = McuBoard;
+    fn deref(&self) -> &Self::Target {
+        &self.board
+    }
+}
+impl DerefMut for Stack {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.board
     }
 }
 
@@ -214,20 +242,19 @@ pub fn standalone(regs: Peripherals) -> McuBoard {
 
 /// Configure the entire stack of PCBs (MCU + Beacon). The Beacon must be attached for this to succeed.
 pub fn in_stack(regs: Peripherals) -> Stack {
-    let (board, smclk, _aclk, mut used, eusci_a1) = board_config(regs);
-    let McuBoard {barometer, mut delay, i2c, imu, spi, flash_mem, adc, gpio, timer_b0, vref, nvmem: info_mem, bctl0_pin, bctl1_pin, rtc} = board;
+    let (mut board, smclk, _aclk, mut used, eusci_a1) = board_config(regs);
 
     // LoRa radio
     used.lora_reset.set_low();
-    delay.delay_ms(1); // > 100 us
+    board.delay.delay_ms(1); // > 100 us
     used.lora_reset.set_high();
-    delay.delay_ms(5);
-    let radio_spi = SpiRefCellDevice::new(spi, used.lora_cs, delay).unwrap();
+    board.delay.delay_ms(5);
+    let radio_spi = SpiRefCellDevice::new(board.spi, used.lora_cs, board.delay).unwrap();
     let radio = crate::lora::new(radio_spi, used.lora_reset, board.delay);
 
     // GPS
     used.gps_reset_pin.set_low();
-    delay.delay_ms(1);
+    board.delay.delay_ms(1);
     used.gps_reset_pin.set_high();
     let (tx, mut rx) = SerialConfig::new(eusci_a1, 
         BitOrder::LsbFirst, 
@@ -241,7 +268,7 @@ pub fn in_stack(regs: Peripherals) -> Stack {
     rx.enable_rx_interrupts();
     let gps = crate::gps::Gps::new(tx, rx);
 
-    Stack {barometer, delay, gps, i2c, imu, spi, flash_mem, adc, radio, gpio, timer_b0, vref, info_mem, bctl0_pin, bctl1_pin, rtc}
+    Stack {board, gps, radio}
 }
 
 /// Configure the MCU board, plus give back some unused bits used by other PCBs if they need to be configured later.
