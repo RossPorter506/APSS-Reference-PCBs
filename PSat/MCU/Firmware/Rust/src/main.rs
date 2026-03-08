@@ -129,7 +129,7 @@ fn write_to_flash_mem(system: &mut McuBoard, data: &[u8], write_addr: u32) -> u3
     if write_addr + data.len() as u32 <= capacity {
         system.flash_mem.write(write_addr, data).unwrap(); // TODO: unwrap
         // println!("Write: {:?}", data);
-        let mut read_buf = [0u8; 51];
+        let mut read_buf = [0u8; SensorData::MAX_SIZE];
         let read_buff = &mut read_buf[0..data.len()];
         system.flash_mem.read(write_addr, read_buff).unwrap();
         // println!("Read back: {:?}", read_buff);
@@ -310,7 +310,7 @@ fn update_state(state: State, system: &mut McuBoard, timestamps: &mut Timestamps
 
             dbg_println!("Below 20m: {}, not accelerating: {}, not rotating: {}", below_20m, not_accelerating, not_rotating);
 
-            const TIMEOUT_DURATION_SEC: i32 = 60*10;
+            const TIMEOUT_DURATION_SEC: i32 = 60*8;
             let timeout = if let Some(flight_start) = &timestamps.flight {
                 current_time.seconds_since(flight_start) > TIMEOUT_DURATION_SEC
             } else { false };
@@ -355,6 +355,7 @@ struct SensorData {
     pub transition: Option<(State, State)>, // 1B
 }
 impl SensorData {
+    pub const MAX_SIZE: usize = 5 + 20 + 12 + 2 + 16 + 1; // size_of() includes alignment which we don't care about
     pub fn new(time: UtcTime) -> Self {
         Self { time, ..Default::default() }
     }
@@ -366,7 +367,7 @@ impl SensorData {
         self.reset || 
         self.transition.is_some()
     }
-    pub fn encode(&self) -> ArrayVec<u8, 56> {
+    pub fn encode(&self) -> ArrayVec<u8, {Self::MAX_SIZE}> {
         let mut vec = ArrayVec::new();
 
         vec.extend(self.time.as_bytes());
