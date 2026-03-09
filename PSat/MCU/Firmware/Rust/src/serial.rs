@@ -61,7 +61,7 @@ macro_rules! print {
     };
 }
 
-/// Prints over `eUSCI_A0` serial. Fails to print if `board::configure()` hasn't been called yet.
+/// Prints over `eUSCI_A0` serial. Panics if `board::configure()` hasn't been called yet.
 #[macro_export]
 macro_rules! println {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -72,7 +72,7 @@ macro_rules! println {
     };
 }
 
-/// Prints over `eUSCI_A0` serial only if the 'debug_print' feature is enabled. Fails to print if `board::configure()` hasn't been called yet.
+/// Prints over `eUSCI_A0` serial only if the 'debug_print' feature is enabled. Panics if `board::configure()` hasn't been called yet.
 #[macro_export]
 macro_rules! dbg_println {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -102,7 +102,7 @@ macro_rules! stdlib_print {
     };
 }
 
-/// Prints over `eUSCI_A0` serial. Fails to print if `board::configure()` hasn't been called yet.
+/// Prints over `eUSCI_A0` serial. Panics if `board::configure()` hasn't been called yet.
 /// 
 /// This macro uses the Rust core library, which can print more things but bloats the executable. Avoid using this if you can.
 #[macro_export]

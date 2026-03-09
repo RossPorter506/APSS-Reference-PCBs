@@ -28,7 +28,7 @@ use msp430fr2x5x_hal::{
 use embedded_hal::{delay::DelayNs, digital::{InputPin, OutputPin, StatefulOutputPin}};
 use embedded_hal_bus::{i2c::RefCellDevice as I2cRefCellDevice, spi::RefCellDevice as SpiRefCellDevice};
 use static_cell::StaticCell;
-use crate::{MAIN_LOOP_FREQ_HZ, SensorData, State, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*, println};
+use crate::{MAIN_LOOP_FREQ_HZ, SensorData, State, Timestamps, dbg_println, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*, println};
 
 /// CS pin automatically managed
 type ManagedSpi<ChipSel> = SpiRefCellDevice<'static, SensorSpi, ChipSel, SysDelay>; 
@@ -97,19 +97,20 @@ impl McuBoard {
     /// Write to the flash memory, wrapping around the address space as needed.
     pub fn flash_write_wrapping(&mut self, data: &[u8], write_addr: u32) -> u32 {
         let capacity = FlashMem::CAPACITY;
+        dbg_println!("Flash write:    {:?}", data); 
         if write_addr + data.len() as u32 <= capacity {
-            self.flash_mem.write(write_addr, data).unwrap(); // TODO: unwrap
-            println!("Write: {:?}", data); // TODO: Remove readback
-            let mut read_buf = [0u8; SensorData::MAX_SIZE];
+            self.flash_mem.write(write_addr, data).unwrap(); // Unwrap safe
+            
+            let mut read_buf = [0u8; SensorData::MAX_SIZE]; // TODO: Remove readback
             let read_buff = &mut read_buf[0..data.len()];
             self.flash_mem.read(write_addr, read_buff).unwrap();
-            println!("Read back: {:?}", read_buff);
+            dbg_println!("Flash readback: {:?}", read_buff);
             write_addr + data.len() as u32
         } else { // write wraps around address space
             let remaining = (capacity - write_addr) as usize;
             let (data1, data2) = data.split_at(remaining);
-            self.flash_mem.write(write_addr, data1).unwrap(); // TODO: unwrap
-            self.flash_mem.write(0, data2).unwrap(); // TODO: unwrap
+            self.flash_mem.write(write_addr, data1).unwrap(); // Unwrap safe
+            self.flash_mem.write(0, data2).unwrap(); //  Unwrap safe
             data2.len() as u32
         }
     }

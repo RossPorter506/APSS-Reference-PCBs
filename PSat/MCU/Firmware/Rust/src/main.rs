@@ -238,7 +238,7 @@ impl StateMachine {
                     self.current_time.seconds_since(flight_start) > TIMEOUT_DURATION_SEC
                 } else { false };
 
-                if below_20m && not_accelerating && not_rotating || timeout {
+                if (below_20m && not_accelerating && not_rotating) || timeout {
                     self.timestamps.landed = Some(self.current_time.clone());
                     self.data.transition = Some((Flight, Landed));
                     Landed
@@ -262,16 +262,16 @@ impl StateMachine {
     fn read_sensors(&mut self, system: &mut McuBoard) {
         const IMU_POLL_FREQ_HZ:    u16 = MAIN_LOOP_FREQ_HZ / 1; // poll every loop
         const BARO_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 1;
-        const BATT_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 10; // poll once every 10 loops
+        const BATT_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 100; // poll once every 100 loops
 
         const IMU_POLL_PERIOD_MS:  u16 = 1000 / IMU_POLL_FREQ_HZ;
         const BARO_POLL_PERIOD_MS: u16 = 1000 / BARO_POLL_FREQ_HZ;
         const BATT_POLL_PERIOD_MS: u16 = 1000 / BATT_POLL_FREQ_HZ;
 
         if self.current_time.millis.is_multiple_of(IMU_POLL_PERIOD_MS) {
-            self.data.imu = system.imu.measure_millis().ok();
-            if let Some((acc, gyro, temp)) = self.data.imu {
-                dbg_println!("gyro x: {}md/s, y: {}md/s, z: {}md/s,", gyro.x, gyro.y, gyro.z);
+            if let Ok((acc, gyro, temp)) = system.imu.measure_millis() {
+                self.data.imu = Some((acc, gyro, temp));
+                dbg_println!("gyro x: {} md/s, y: {} md/s, z: {} md/s,", gyro.x, gyro.y, gyro.z);
                 dbg_println!("accel x: {} mgees, y: {} mgees, z: {} mgees,", acc.x, acc.y, acc.z);
             }
         }
@@ -279,14 +279,12 @@ impl StateMachine {
             if let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
                 let altitude = fast_altitude(pressure, self.ref_pressure);
                 self.data.baro = Some((pressure.get::<pascal>(), temperature.get::<degree_celsius>(), altitude));
-                unsafe { 
-                    dbg_println!(
-                        "pressure: {} Pa, temperature: {}C, altitude: {}dm", 
-                        pressure.get::<pascal>().to_int_unchecked::<i32>(), 
-                        temperature.get::<degree_celsius>().to_int_unchecked::<i32>(), 
-                        (10.0*altitude).to_int_unchecked::<i32>()
-                    ) 
-                };
+                dbg_println!(
+                    "pressure: {} Pa, temperature: {} C, altitude: {} dm", 
+                    unsafe { pressure.get::<pascal>().to_int_unchecked::<i32>() }, 
+                    unsafe { temperature.get::<degree_celsius>().to_int_unchecked::<i32>() }, 
+                    unsafe { (10.0*altitude).to_int_unchecked::<i32>() }
+                )
             }
         }
         if self.current_time.millis.is_multiple_of(BATT_POLL_PERIOD_MS) {
