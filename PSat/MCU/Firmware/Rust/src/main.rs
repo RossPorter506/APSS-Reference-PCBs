@@ -183,7 +183,7 @@ impl StateMachine {
             },
             Preflight => {
                 let above_20m = self.data.baro.unwrap_or_default().2 > 20.0;
-                let above_2gs = self.data.imu.unwrap_or_default().0.z > 2_000;
+                let above_2gs = self.data.imu.unwrap_or_default().0.z < -2_000;
 
                 if above_20m || above_2gs {
                     self.timestamps.flight = Some(self.current_time.clone());
@@ -200,7 +200,6 @@ impl StateMachine {
                 let not_rotating = if let Some(imu) = self.data.imu {
                     const TOLERANCE: u32 = 1_500; // 1.5 degrees per sec. Datasheet states zero rate output (ZRO) is +- 1 d/sec
                     let (x,y,z) = (imu.1.x, imu.1.y, imu.1.z);
-                    dbg_println!("gyro x: {}md/s, y: {}md/s, z: {}md/s,", x,y,z);
 
                     x.unsigned_abs() < TOLERANCE && 
                     y.unsigned_abs() < TOLERANCE && 
@@ -211,7 +210,6 @@ impl StateMachine {
                 let not_accelerating = if let Some(imu) = self.data.imu {
                     // Acceleration vectors (in milli-gees: 1000 = 1g)
                     let (x,y,z) = (imu.0.x as i32, imu.0.y as i32, imu.0.z as i32);
-                    dbg_println!("accel x: {} mgees, y: {} mgees, z: {} mgees,", x,y,z);
 
                     // 0.95g < sqrt(x^2 + y^2 + z^2) < 1.05g, but avoiding sqrt
                     let acceleration_squared = x*x + y*y + z*z;
@@ -262,11 +260,23 @@ impl StateMachine {
 
         if self.current_time.millis.is_multiple_of(IMU_POLL_PERIOD_MS) {
             self.data.imu = system.imu.measure_millis().ok();
+            if let Some((acc, gyro, temp)) = self.data.imu {
+                dbg_println!("gyro x: {}md/s, y: {}md/s, z: {}md/s,", gyro.x, gyro.y, gyro.z);
+                dbg_println!("accel x: {} mgees, y: {} mgees, z: {} mgees,", acc.x, acc.y, acc.z);
+            }
         }
         if self.current_time.millis.is_multiple_of(BARO_POLL_PERIOD_MS) {
             if let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
                 let altitude = fast_altitude(pressure, self.ref_pressure);
                 self.data.baro = Some((pressure.get::<pascal>(), temperature.get::<degree_celsius>(), altitude));
+                unsafe { 
+                    dbg_println!(
+                        "pressure: {} Pa, temperature: {}C, altitude: {}dm", 
+                        pressure.get::<pascal>().to_int_unchecked::<i32>(), 
+                        temperature.get::<degree_celsius>().to_int_unchecked::<i32>(), 
+                        (10.0*altitude).to_int_unchecked::<i32>()
+                    ) 
+                };
             }
         }
         if self.current_time.millis.is_multiple_of(BATT_POLL_PERIOD_MS) {

@@ -349,7 +349,12 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
 
     // Barometer
     gpio.bmp390_adr_pin.set_low().ok();
-    let config = bmp390::Configuration::default();
+    use bmp390::{PowerControl, PowerMode, Osr, Oversampling, Odr, OdrSel, IirFilter, Config};
+    let config = bmp390::Configuration { 
+        power_control: PowerControl { enable_pressure: true, enable_temperature: true, mode: PowerMode::Normal }, 
+        oversampling: Osr { pressure: Oversampling::X2, temperature: Oversampling::X2 }, 
+        output_data_rate: Odr { odr_sel: OdrSel::ODR_100 }, 
+        iir_filter: Config { iir_filter: IirFilter::coef_1 } };
     let barometer = Bmp390::try_new(I2cRefCellDevice::new(i2c), bmp390::Address::Down, delay, &config).unwrap(); // TODO: unwrap
 
     // IMU
