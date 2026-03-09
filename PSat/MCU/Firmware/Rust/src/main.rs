@@ -310,12 +310,23 @@ impl State {
 }
 
 /// Approximate pressure -> altitude conversion.
-/// Assumes a linear pressure decrease per altitude, reasonable up to ~2km
+/// Based on the barometric formula. Assumes constant temperature across altitudes
 pub fn fast_altitude(pressure: Pressure, reference_pressure: Pressure) -> f32 {
-    8434.0 * fast_ln((reference_pressure / pressure).value)
+    const T: f32 = 273.15 + 25.0; // temperature (kelvin)
+    const R: f32 = 8.31432; // universal gas constant J/(mol*K)
+    const M: f32 = 0.0289644; // Molar mass of air (kg/mol)
+    const G: f32 = 9.806; // gravitational acceleration (m/s^2)
+
+    const COEFF: f32 = -R*T / (M*G); 
+
+    if pressure >= reference_pressure {
+        COEFF*fast_ln((pressure / reference_pressure).value)
+    } else {
+        -COEFF*fast_ln((reference_pressure / pressure).value)
+    }
 }
 
-/// Fast natural log approximation
+/// Fast natural log approximation for x >= 1
 pub fn fast_ln(x: f32) -> f32 {
     // Decompose float
     let bits = x.to_bits();
