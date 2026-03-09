@@ -33,7 +33,6 @@ const MAIN_LOOP_FREQ_HZ: u16 = 1000 / MAIN_LOOP_PERIOD_MS;
 static CURRENT_TIME: Mutex<RefCell<UtcTime>> = Mutex::new(RefCell::new(UtcTime::new()));
 
 // TODO: Make UtcTime::increment work for periods that don't evenly divide into 1000
-// TODO: Readback from flash memory not working
 #[entry]
 fn main() -> ! {
     let regs = msp430fr2355::Peripherals::take().unwrap();
@@ -120,16 +119,27 @@ impl StateMachine {
 
     /// Perform actions that should be executed while in a particular mode (Moore-style)
     fn state_actions(&mut self, system: &mut McuBoard) {
+        use State::*;
         match self.state {
-            State::Calibration => {
+            Calibration => {
                 if let Ok(p) = system.barometer.pressure() {
+                    unsafe{ println!("Reference pressure: {}", p.get::<pascal>().to_int_unchecked::<i32>()) };
                     self.ref_pressure = p;
                     system.nvmem.store_calibration_pressure(p.get::<pascal>());
+
                     system.nvmem.store_num_resets(0); // Reset count
+
+                    system.flash_mem.erase_chip().unwrap(); // Unwrap safe
+                    system.flash_mem.wait_wip().unwrap(); // Unwrap safe
+                    self.flash_write_addr = 0;
+
                     self.is_calibrated = true;
                 }
             },
-            State::Preflight | State::Flight => {
+            Preflight => {
+                self.read_sensors(system);
+            }
+            Flight => {
                 self.read_sensors(system);
                 if self.data.is_some() {
                     self.flash_write_addr = system.flash_write_wrapping(self.data.encode().as_slice(), self.flash_write_addr);
