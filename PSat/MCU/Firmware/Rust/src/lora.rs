@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use core::{time::Duration};
 
+use defmt::panic;
 use embedded_hal_bus::spi::RefCellDevice;
 use embedded_lora_rfm95::{error::{IoError, RxCompleteError, TxStartError}, lora::types::{Bandwidth, CodingRate, CrcMode, HeaderMode, Polarity, PreambleLength, SpreadingFactor, SyncWord}, rfm95::{self, Rfm95Driver}};
 use msp430fr2x5x_hal::delay::SysDelay;
@@ -28,7 +29,7 @@ pub fn new(spi_device: RefCellDevice<'static, SensorSpi, RadioCsPin, SysDelay>, 
         .set_preamble_length(PreambleLength::L8)
         .set_spreading_factor(SpreadingFactor::S10) // High SF == Best range
         .set_sync_word(SyncWord::PRIVATE);
-    rfm95.set_config(&lora_config).unwrap();
+    rfm95.set_config(&lora_config).unwrap(); // Unwrap safe
 
     Radio{driver: rfm95}
 }

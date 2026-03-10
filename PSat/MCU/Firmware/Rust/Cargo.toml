@@ -27,7 +27,7 @@ bmp390 = {version = "0.4", features = ["sync"]}
 uom = { version = "0.36.0", default-features = false, features = ["f32", "si"] }
 
 icm42670 = {git = "https://github.com/rossporter506/icm42670-batch"}
-mx25v = {git = "https://github.com/rossporter506/mx25v-rs"}
+mx25v = {git = "https://github.com/rossporter506/mx25v-rs", features = ["defmt"]}
 
 arrayvec = {version = "0.7", default-features = false }
 static_cell = {version = "2.1"}
@@ -36,6 +36,8 @@ fixed = "1.29"
 static_assertions = "1.1"
 embedded-storage = "0.3.1"
 embedded-io = "0.6"
+
+defmt = "1.0"
 
 [profile.release]
 lto = "fat"

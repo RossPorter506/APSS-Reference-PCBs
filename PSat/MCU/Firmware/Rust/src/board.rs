@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 use bmp390::sync::Bmp390;
+use defmt::{debug, panic, println, unwrap};
 use embedded_storage::nor_flash::NorFlash;
 use mx25v::blocking::MX25V1606;
 use static_assertions::assert_type_eq_all;
@@ -28,7 +29,7 @@ use msp430fr2x5x_hal::{
 use embedded_hal::{delay::DelayNs, digital::{InputPin, OutputPin, StatefulOutputPin}};
 use embedded_hal_bus::{i2c::RefCellDevice as I2cRefCellDevice, spi::RefCellDevice as SpiRefCellDevice};
 use static_cell::StaticCell;
-use crate::{MAIN_LOOP_FREQ_HZ, SensorData, State, Timestamps, dbg_println, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*, println};
+use crate::{MAIN_LOOP_FREQ_HZ, SensorData, State, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*};
 
 /// CS pin automatically managed
 type ManagedSpi<ChipSel> = SpiRefCellDevice<'static, SensorSpi, ChipSel, SysDelay>; 
@@ -97,14 +98,14 @@ impl McuBoard {
     /// Write to the flash memory, wrapping around the address space as needed.
     pub fn flash_write_wrapping(&mut self, data: &[u8], write_addr: u32) -> u32 {
         let capacity = FlashMem::CAPACITY;
-        dbg_println!("Flash write:    {:?}", data); 
+        debug!("Flash write:    {:?}", data); 
         if write_addr + data.len() as u32 <= capacity {
             self.flash_mem.write(write_addr, data).unwrap(); // Unwrap safe
             
             let mut read_buf = [0u8; SensorData::MAX_SIZE]; // TODO: Remove readback
             let read_buff = &mut read_buf[0..data.len()];
             self.flash_mem.read(write_addr, read_buff).unwrap();
-            dbg_println!("Flash readback: {:?}", read_buff);
+            debug!("Flash readback: {:?}", read_buff);
             write_addr + data.len() as u32
         } else { // write wraps around address space
             let remaining = (capacity - write_addr) as usize;
@@ -146,14 +147,14 @@ impl NonvolatileMemory {
     }
 
     pub fn try_get_current_time(&self) -> Option<UtcTime> {
-        UtcTime::try_from_bytes(self.info_mem[Self::CURRENT_TIME_ADDR].try_into().unwrap())
+        UtcTime::try_from_bytes(unwrap!(self.info_mem[Self::CURRENT_TIME_ADDR].try_into()))
     }
     pub fn store_current_time(&mut self, time: &UtcTime) {
         self.info_mem[Self::CURRENT_TIME_ADDR].copy_from_slice(&time.as_bytes());
     }
 
     pub fn get_transitions(&self) -> Timestamps {
-        Timestamps::from_bytes(self.info_mem[Self::TRANSITIONS_ADDR].try_into().unwrap())
+        Timestamps::from_bytes(unwrap!(self.info_mem[Self::TRANSITIONS_ADDR].try_into()))
     }
     pub fn store_transitions(&mut self, transitions: &Timestamps) {
         self.info_mem[Self::TRANSITIONS_ADDR].copy_from_slice(&transitions.as_bytes())
@@ -171,7 +172,7 @@ impl NonvolatileMemory {
 
     /// Reads the flash memory current write address from memory. If it's invalid then `0` is returned.
     pub fn get_flash_write_addr(&self) -> u32 {
-        let addr = u32::from_le_bytes(self.info_mem[Self::WRITE_ADDR_ADDR].try_into().unwrap());
+        let addr = u32::from_le_bytes(unwrap!(self.info_mem[Self::WRITE_ADDR_ADDR].try_into()));
         if addr >= FlashMem::CAPACITY {0} else {addr}
     }
     pub fn store_flash_write_addr(&mut self, write_addr: u32) {
@@ -179,7 +180,7 @@ impl NonvolatileMemory {
     }
 
     pub fn try_get_calibration_pressure(&self) -> Option<Pressure> {
-        let pressure = f32::from_le_bytes(self.info_mem[Self::REF_PRESSURE_ADDR].try_into().unwrap());
+        let pressure = f32::from_le_bytes(unwrap!(self.info_mem[Self::REF_PRESSURE_ADDR].try_into()));
         if (10_000.0..150_000.0).contains(&pressure) { // Range is arbitrary
             Some(Pressure::new::<pascal>(pressure))
         } else {
@@ -251,7 +252,7 @@ pub fn in_stack(regs: Peripherals) -> Stack {
     board.delay.delay_ms(1); // > 100 us
     used.lora_reset.set_high();
     board.delay.delay_ms(5);
-    let radio_spi = SpiRefCellDevice::new(board.spi, used.lora_cs, board.delay).unwrap();
+    let radio_spi = unwrap!(SpiRefCellDevice::new(board.spi, used.lora_cs, board.delay));
     let radio = crate::lora::new(radio_spi, used.lora_reset, board.delay);
 
     // GPS
@@ -344,7 +345,7 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     const { assert!( MAIN_LOOP_FREQ_HZ < 1000 && MAIN_LOOP_FREQ_HZ > 10) }
     // const {assert!( (MCLK.freq() / (prescaler.value() * TARGET_LOOP_FREQ_HZ)) < u16::MAX )} // TODO: Make the necessary functions for this assert const in the HAL
 
-    let vref = pmm.enable_internal_reference(ReferenceVoltage::_2V5).unwrap(); // Safe
+    let vref = unwrap!(pmm.enable_internal_reference(ReferenceVoltage::_2V5)); // Safe
 
     let (info_mem, _) = InfoMemory::as_u8s(regs.SYS);
     let info_mem = NonvolatileMemory::new(info_mem);
@@ -364,7 +365,7 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     let imu = Imu::new(I2cRefCellDevice::new(i2c), icm42670::Address::Primary).unwrap(); // TODO: unwrap
 
     // Flash memory
-    let flash_spi = SpiRefCellDevice::new(spi, used.flash_cs_pin, delay).unwrap(); // TODO: unwrap
+    let flash_spi = unwrap!(SpiRefCellDevice::new(spi, used.flash_cs_pin, delay));
     let flash_mem = MX25V1606::new(flash_spi);
 
     (McuBoard {barometer, delay, i2c: I2cRefCellDevice::new(i2c), imu, spi, flash_mem, adc,  timer_b0, gpio, vref, nvmem: info_mem, bctl0_pin, bctl1_pin, rtc}, smclk, aclk, external_pins, regs.E_USCI_A1)

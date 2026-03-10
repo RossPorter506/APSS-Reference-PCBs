@@ -1,9 +1,10 @@
 use msp430fr2x5x_hal::gpio::*;
 use static_assertions::assert_type_eq_all;
+use crate::{uprint, uprintln};
 
 // Our panic handler. Currently we print strings here for maximum debuggability. String printing is quite expensive in terms of executable size,
 // so if you're running out of space consider commenting out some of these print statements (or uncommenting `strip = true` in cargo.toml!).
-use crate::{pin_mappings::{RedLedPin, GreenLedPin, BlueLedPin}, print, println, stdlib_println};
+use crate::{pin_mappings::{RedLedPin, GreenLedPin, BlueLedPin}};
 use core::panic::PanicInfo;
 #[panic_handler]
 fn panic_handler(panic_info: &PanicInfo) -> ! {
@@ -21,27 +22,6 @@ fn panic_handler(panic_info: &PanicInfo) -> ! {
         p2.p2out.set_bits(|w| w.bits(Pin1::SET_MASK | Pin2::SET_MASK));
         p2.p2out.clear_bits(|w| w.bits(Pin0::CLR_MASK));
     }
-
-    let serial_configured = msp430::critical_section::with(|cs| { crate::serial::SERIAL.borrow_ref(cs).is_some() });
-    if serial_configured {
-        print!("Panic: ");
-        if let Some(location) = panic_info.location() {
-            // Printing code locations adds a lot of executable size
-            println!("File: {}, line: {}, col: {},", location.file(), location.line(), location.column())
-        }
-        if let Some(message) = panic_info.message().as_str() {
-            print!("{}", message);
-        }
-        else {
-            // Unfortunately we can't print PanicMessage using ufmt because it doesn't implement uDisplay or uDebug.
-            // The below code pulls in Rust's standard printing library. This takes more executable space, remove it if you need to.
-            stdlib_println!("{}", panic_info.message());
-            //println!("Can't print message");
-        }
-        // unsafe{p2.p2out.clear_bits(|w| w.bits(!(1<<2)))};
-    }
-
-    
 
     loop { 
         msp430::asm::barrier();

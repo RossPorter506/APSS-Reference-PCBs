@@ -4,6 +4,7 @@
 #![feature(abi_msp430_interrupt)]
 
 use core::{cell::RefCell, sync::atomic::Ordering};
+use defmt::{Format, debug, info, println, warn, panic, unwrap, expect};
 use portable_atomic::AtomicBool;
 use arrayvec::ArrayVec;
 use ::icm42670::accelerometer::vector::{I16x3, I32x3};
@@ -22,6 +23,7 @@ mod panic_handler;
 mod lora;
 mod gps;
 mod icm42670;
+mod defmt_impl;
 
 // Internal imports
 use crate::{board::{BeaconMode, McuBoard, NonvolatileMemory, Stack}, gps::{Altitude, Degrees, GGA_DATA, GPS_MSG_BUF, GgaMessage, GpsFixType, UtcTime}};
@@ -43,7 +45,7 @@ type System = Stack;
 // TODO: transmit GPS data (1Hz)
 #[entry]
 fn main() -> ! {
-    let regs = msp430fr2355::Peripherals::take().unwrap();
+    let regs = unwrap!(msp430fr2355::Peripherals::take());
     
     // Configure the MCU board assuming no connections to other PCBs.
     let mut system = board::in_stack(regs); // Collect board elements, configure printing, etc.
@@ -52,9 +54,7 @@ fn main() -> ! {
 
     unsafe{ enable_interrupts(); }
 
-    // Printing can be expensive in terms of executable size. We only have 32kB on the MSP430, use it sparingly.
-    // Prints over eUSCI A0. See board::configure() for details.
-    println!("Hello world!");
+    println!("Hi!");
 
     // The 'fresh_start' feature will make the board reset from Idle every time.
     // Useful for testing, but for flight this should NOT be enabled
@@ -197,7 +197,7 @@ impl StateMachine {
             Calibration | Preflight | Flight => system.beacon_mode(BeaconMode::Manual),
             Landed => system.beacon_mode(BeaconMode::AutoActive),
         };
-        println!("New state: {:?}", new_state);
+        info!("New state: {:?}", new_state);
         system.nvmem.store_state(new_state);
         system.nvmem.store_transitions(&self.timestamps);
     }
@@ -230,7 +230,7 @@ impl StateMachine {
 
                 if (self.is_calibrated && self.gps_lock) || timeout {
                     if timeout {
-                        println!("Calibration timeout");
+                        warn!("Calibration timeout");
                     }
                     self.timestamps.preflight = Some(self.current_time.clone());
                     self.data.transition = Some((Calibration, Preflight));
@@ -279,7 +279,7 @@ impl StateMachine {
                     (LOWER_BOUND_SQUARED..UPPER_BOUND_SQUARED).contains(&acceleration_squared)
                 } else { false };
 
-                dbg_println!("Below 20m: {}, not accelerating: {}, not rotating: {}", below_20m, not_accelerating, not_rotating);
+                debug!("Below 20m: {}, not accelerating: {}, not rotating: {}", below_20m, not_accelerating, not_rotating);
 
                 const TIMEOUT_DURATION_SEC: i32 = 60*8;
                 let timeout = if let Some(flight_start) = &self.timestamps.flight {
@@ -288,7 +288,7 @@ impl StateMachine {
 
                 if (below_20m && not_accelerating && not_rotating) || timeout {
                     if timeout {
-                        dbg_println!("Flight timeout");
+                        warn!("Flight timeout");
                     }
                     self.timestamps.landed = Some(self.current_time.clone());
                     self.data.transition = Some((Flight, Landed));
@@ -326,14 +326,14 @@ impl StateMachine {
         if self.current_time.millis.is_multiple_of(IMU_POLL_PERIOD_MS)
         && let Ok((acc, gyro, temp)) = system.imu.measure_millis() {
                 self.data.imu = Some((acc, gyro, temp));
-                dbg_println!("gyro x: {} md/s, y: {} md/s, z: {} md/s,", gyro.x, gyro.y, gyro.z);
-                dbg_println!("accel x: {} mgees, y: {} mgees, z: {} mgees,", acc.x, acc.y, acc.z);
+                debug!("gyro x: {} md/s, y: {} md/s, z: {} md/s,", gyro.x, gyro.y, gyro.z);
+                debug!("accel x: {} mgees, y: {} mgees, z: {} mgees,", acc.x, acc.y, acc.z);
             }
         if self.current_time.millis.is_multiple_of(BARO_POLL_PERIOD_MS)
         && let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
             let altitude = fast_altitude(pressure, self.ref_pressure);
             self.data.baro = Some((pressure.get::<pascal>(), temperature.get::<degree_celsius>(), altitude));
-            dbg_println!(
+            debug!(
                 "pressure: {} Pa, temperature: {} C, altitude: {} dm", 
                 unsafe { pressure.get::<pascal>().to_int_unchecked::<i32>() }, 
                 unsafe { temperature.get::<degree_celsius>().to_int_unchecked::<i32>() }, 
@@ -354,7 +354,7 @@ impl StateMachine {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, uDebug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Format)]
 enum State {
     Idle = 0, // Powered on, but not armed.
     Calibration = 1, // Any pre-flight calibration, like BMP390 ref altitude, GPS lock, etc. 
@@ -425,11 +425,11 @@ struct Timestamps {
 }
 impl Timestamps {
     pub fn from_bytes(bytes: &[u8;25] ) -> Self {
-        let calibration = UtcTime::try_from_bytes(bytes[0..5].try_into().unwrap());
-        let preflight   = UtcTime::try_from_bytes(bytes[5..10].try_into().unwrap());
-        let flight      = UtcTime::try_from_bytes(bytes[10..15].try_into().unwrap());
-        let landed      = UtcTime::try_from_bytes(bytes[15..20].try_into().unwrap());
-        let recovered   = UtcTime::try_from_bytes(bytes[20..25].try_into().unwrap());
+        let calibration = UtcTime::try_from_bytes(unwrap!(bytes[0..5].try_into()));
+        let preflight   = UtcTime::try_from_bytes(unwrap!(bytes[5..10].try_into()));
+        let flight      = UtcTime::try_from_bytes(unwrap!(bytes[10..15].try_into()));
+        let landed      = UtcTime::try_from_bytes(unwrap!(bytes[15..20].try_into()));
+        let recovered   = UtcTime::try_from_bytes(unwrap!(bytes[20..25].try_into()));
 
         Timestamps { calibration, preflight, flight, landed, recovered } 
     }

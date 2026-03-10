@@ -3,6 +3,7 @@
 use core::{cell::RefCell, fmt::Debug, num::ParseIntError};
 
 use arrayvec::{ArrayString, ArrayVec};
+use defmt::unwrap;
 use msp430::interrupt::Mutex;
 use msp430fr2x5x_hal::serial::RecvError;
 use embedded_hal_nb::serial::Read;
@@ -335,7 +336,7 @@ impl TryFrom<(&str, &str)> for Degrees {
         let degrees: i16; 
         let minutes_str: &str;
         let minutes_frac_str: &str;
-        let (first_half, _) = degrees_str.split_once('.').unwrap();
+        let (first_half, _) = unwrap!(degrees_str.split_once('.'));
     
         if first_half.len() == 4 { // ddmm
             degrees          =  degrees_str[0..2].parse().unwrap();
