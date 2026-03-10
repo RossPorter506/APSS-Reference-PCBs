@@ -1,15 +1,23 @@
 #![allow(dead_code)]
 
-use core::{fmt::Debug, num::ParseIntError};
+use core::{cell::RefCell, fmt::Debug, num::ParseIntError};
 
 use arrayvec::{ArrayString, ArrayVec};
+use msp430::interrupt::Mutex;
 use msp430fr2x5x_hal::serial::RecvError;
 use embedded_hal_nb::serial::Read;
+use embedded_io::Write;
 use ufmt::{derive::uDebug, uDisplay, uwrite};
 use crate::{MAIN_LOOP_PERIOD_MS, pin_mappings::{GpsRx, GpsTx}};
 
 pub const GPS_BAUDRATE: u32 = 115200;
 pub const NMEA_MESSAGE_MAX_LEN: usize = 82;
+
+pub static GPS_MSG_BUF: Mutex<RefCell<ArrayString<NMEA_MESSAGE_MAX_LEN>>> 
+    = Mutex::new(RefCell::new(ArrayString::new_const()));
+
+pub static GGA_DATA: Mutex<RefCell<Option<GgaMessage>>>
+    = Mutex::new(RefCell::new(None));
 
 pub struct Gps {
     tx: GpsTx,
@@ -78,9 +86,35 @@ impl Gps {
             Err(nb::Error::Other(e)) => Err(nb::Error::Other(GgaParseError::SerialError(e))),
         }
     }
+
+    /// Set the output data rate of the GPS.
+    // Only accepts fixed values because I can't be bothered dealing with the checksum
+    pub fn set_data_rate(&mut self, rate: DataRate) {
+        let cmd = match rate {
+            DataRate::Hz10  => "$PMTK220,100*2F\r\n",
+            DataRate::Hz1   => "$PMTK220,1000*1F\r\n",
+            DataRate::Hz0_1 => "$PMTK220,10000*2F\r\n",
+        };
+        self.tx.write_all(cmd.as_bytes());
+    }
+
+    /// Calculate NMEA checksum: XOR all characters between $ and *
+    fn checksum(ascii: &[u8]) -> u8 {
+        ascii.iter().fold(0, |acc, &x| acc ^ x)
+    }
+}
+
+pub enum DataRate {
+    /// 10Hz
+    Hz10,
+    /// 1Hz
+    Hz1,
+    /// 0.1Hz
+    Hz0_1,
 }
 
 // A GGA packet in struct form. Useful for interpreting the results on-device.
+#[derive(Clone)]
 pub struct GgaMessage {
     pub utc_time: UtcTime,
     pub latitude: Degrees,
@@ -100,13 +134,57 @@ impl TryFrom<&ArrayString<NMEA_MESSAGE_MAX_LEN>> for GgaMessage {
         if fix_type == GpsFixType::None { return Err(GgaParseError::NoFix) }
 
         Ok( GgaMessage { 
-            utc_time: UtcTime::try_from(sections[1])                .unwrap(),//.map_err(GgaParseError::UtcParseError)?, 
-            latitude:  Degrees::try_from((sections[2], sections[3])).unwrap(),//.map_err(GgaParseError::LatLongParseError)?, 
-            longitude: Degrees::try_from((sections[4], sections[5])).unwrap(),//.map_err(GgaParseError::LatLongParseError)?, 
-            num_satellites: sections[7].parse()                     .unwrap(),//.map_err(GgaParseError::InvalidSatelliteNumber)?, 
-            altitude_msl: Altitude::try_from(sections[9])           .unwrap(),//.map_err(GgaParseError::AltitudeParseError)?, 
+            utc_time: UtcTime::try_from(sections[1])                .map_err(GgaParseError::UtcParseError)?, 
+            latitude:  Degrees::try_from((sections[2], sections[3])).map_err(GgaParseError::LatLongParseError)?, 
+            longitude: Degrees::try_from((sections[4], sections[5])).map_err(GgaParseError::LatLongParseError)?, 
+            num_satellites: sections[7].parse()                     .map_err(GgaParseError::InvalidSatelliteNumber)?, 
+            altitude_msl: Altitude::try_from(sections[9])           .map_err(GgaParseError::AltitudeParseError)?, 
             fix_type,
         })
+    }
+}
+impl GgaMessage {
+    /// Produce a binary-encoded byte array that represents the GPS data.
+    pub fn encode_binary(&self) -> [u8; 14] {
+        let mut bytes = [0;14];
+        const { assert!(crate::TEAM_ID < 32); } // 5 bits
+        let hours: u8 = self.utc_time.hours.clamp(0, 23); // 5 bits
+        let minutes: u8 = self.utc_time.minutes.clamp(0, 59); // 6 bits
+        let seconds: u8 = self.utc_time.seconds.clamp(0, 59); // 6 bits
+        let num_sats: u8 = self.num_satellites.clamp(0, 15); // 4 bits
+        let altitude: i32 = self.altitude_msl.decimetres.clamp(-0x7FFFF, 0x7FFFF); // 20 bits
+
+        let mult = if self.latitude.degrees < 0 {-1} else {1};
+        let latitude: i32 = self.latitude.degrees as i32 * 10_000_000 + (self.latitude.degrees_millionths as i32 * 10 * mult);
+
+        let mult = if self.longitude.degrees < 0 {-1} else {1};
+        let longitude: i32 = self.longitude.degrees as i32 * 10_000_000 + (self.longitude.degrees_millionths as i32 * 10 * mult);
+
+        let fix_ok: bool = self.fix_type != GpsFixType::None;
+        let is_dgps: bool = self.fix_type == GpsFixType::DifferentialGps;
+
+        // team_id | hours[5..2]
+        bytes[0]  = (crate::TEAM_ID << 3) | (hours >> 2);
+
+        // hours[1..0] | minutes
+        bytes[1]  = ((hours & 0b11) << 6) | minutes;
+
+        // seconds | fix_ok | is_dgps
+        bytes[2]  = (seconds << 2) | ((fix_ok as u8) << 1) | (is_dgps as u8);
+
+        // num_sats | altitude[20..17]
+        bytes[3]  = (num_sats << 4) | (((altitude >> 16) & 0xF) as u8);
+
+        // altitude[16..0]
+        bytes[4..=5].copy_from_slice(&altitude.to_be_bytes()[2..=3]);
+
+        // latitude[32..0]
+        bytes[6..=9].copy_from_slice(&latitude.to_be_bytes());
+        
+        // longitude[32..0]
+        bytes[10..=13].copy_from_slice(&longitude.to_be_bytes());
+
+        bytes
     }
 }
 
@@ -229,6 +307,7 @@ pub enum UtcError {
 }
 
 /// A degrees value, stored as a decimal fraction.
+#[derive(Clone)]
 pub struct Degrees {
     pub degrees: i16,
     pub degrees_millionths: u32,
@@ -288,7 +367,7 @@ pub enum LatLongParseError {
     InvalidCompassDirection,
 }
 
-#[derive(Debug, uDebug, PartialEq, Eq)]
+#[derive(Debug, uDebug, PartialEq, Eq, Copy, Clone)]
 pub enum GpsFixType {
     None = 0,
     Gps = 1,
@@ -307,6 +386,7 @@ impl TryFrom<&str> for GpsFixType{
     }
 }
 
+#[derive(Clone)]
 pub struct Altitude{
     pub decimetres: i32,
 }

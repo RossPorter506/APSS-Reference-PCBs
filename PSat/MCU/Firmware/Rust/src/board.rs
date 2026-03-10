@@ -127,16 +127,16 @@ impl NonvolatileMemory {
     // Info mem contents by address:
     // 0      - Current state
     // 1..6   - Current time
-    // 6..26  - Transition timestamps
-    // 26     - Reset counter
-    // 27..31 - Current flash memory address
-    // 31..35 - Reference pressure
+    // 6..31  - Transition timestamps
+    // 31     - Reset counter
+    // 32..36 - Current flash memory address
+    // 36..40 - Reference pressure
     const STATE_ADDR: usize = 0;
     const CURRENT_TIME_ADDR: Range<usize> = 1..6;
-    const TRANSITIONS_ADDR: Range<usize> = 6..26;
-    const RESET_COUNTER_ADDR: usize = 26;
-    const WRITE_ADDR_ADDR: Range<usize> = 27..31;
-    const REF_PRESSURE_ADDR: Range<usize> = 31..35;
+    const TRANSITIONS_ADDR: Range<usize> = 6..31;
+    const RESET_COUNTER_ADDR: usize = 31;
+    const WRITE_ADDR_ADDR: Range<usize> = 32..36;
+    const REF_PRESSURE_ADDR: Range<usize> = 36..40;
 
     pub fn try_get_state(&self) -> Option<State> {
         State::try_from_u8(self.info_mem[Self::STATE_ADDR])
@@ -244,6 +244,7 @@ pub fn standalone(regs: Peripherals) -> McuBoard {
 /// Configure the entire stack of PCBs (MCU + Beacon). The Beacon must be attached for this to succeed.
 pub fn in_stack(regs: Peripherals) -> Stack {
     let (mut board, smclk, _aclk, mut used, eusci_a1) = board_config(regs);
+    board.beacon_mode(BeaconMode::Manual);
 
     // LoRa radio
     used.lora_reset.set_low();

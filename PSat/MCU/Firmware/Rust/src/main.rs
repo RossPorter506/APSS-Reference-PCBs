@@ -3,7 +3,8 @@
 #![feature(asm_experimental_arch)]
 #![feature(abi_msp430_interrupt)]
 
-use core::cell::RefCell;
+use core::{cell::RefCell, sync::atomic::Ordering};
+use portable_atomic::AtomicBool;
 use arrayvec::ArrayVec;
 use ::icm42670::accelerometer::vector::{I16x3, I32x3};
 use msp430::{critical_section, interrupt::{Mutex, enable as enable_interrupts}};
@@ -23,7 +24,9 @@ mod gps;
 mod icm42670;
 
 // Internal imports
-use crate::{board::{BeaconMode, McuBoard, NonvolatileMemory}, gps::{Altitude, Degrees, UtcTime}};
+use crate::{board::{BeaconMode, McuBoard, NonvolatileMemory, Stack}, gps::{Altitude, Degrees, GGA_DATA, GPS_MSG_BUF, GgaMessage, GpsFixType, UtcTime}};
+
+pub const TEAM_ID: u8 = 15;
 
 // How often the main loop cycles through. If this is set faster than the main loop takes, then timekeeping will fail.
 // Currently this period has to cleanly divide into 1000 due to `UtcTime::increment()`
@@ -32,13 +35,18 @@ const MAIN_LOOP_FREQ_HZ: u16 = 1000 / MAIN_LOOP_PERIOD_MS;
 
 static CURRENT_TIME: Mutex<RefCell<UtcTime>> = Mutex::new(RefCell::new(UtcTime::new()));
 
+type System = Stack;
+
 // TODO: Make UtcTime::increment work for periods that don't evenly divide into 1000
+// TODO: Turn on buzzer only when landed
+// TODO: Store GPS data (10Hz)
+// TODO: transmit GPS data (1Hz)
 #[entry]
 fn main() -> ! {
     let regs = msp430fr2355::Peripherals::take().unwrap();
     
     // Configure the MCU board assuming no connections to other PCBs.
-    let mut system = board::standalone(regs); // Collect board elements, configure printing, etc.
+    let mut system = board::in_stack(regs); // Collect board elements, configure printing, etc.
     // Or if the Beacon board is attached:
     // let mut system = board::in_stack(regs);
 
@@ -59,7 +67,7 @@ fn main() -> ! {
     // Load current time into global that's incremented by the RTC interrupt
     critical_section::with(|cs| CURRENT_TIME.replace(cs, current_time.clone()));
     // Load state machine data from non-volatile memory
-    let mut state_machine = StateMachine::restore_from_nvmem(&system.nvmem, current_time.clone());
+    let mut state_machine = StateMachine::restore_from_nvmem(&mut system, current_time.clone());
     system.nvmem.increment_resets();
     
     loop {
@@ -85,13 +93,16 @@ struct StateMachine {
     current_time: UtcTime,
     timestamps: Timestamps,
     data: SensorData,
+    gps_lock: bool,
 }
 impl StateMachine {
     /// Restore state machine data from non-volatile memory.
-    pub fn restore_from_nvmem(nvmem: &NonvolatileMemory, current_time: UtcTime) -> Self {
+    pub fn restore_from_nvmem(system: &mut System, current_time: UtcTime) -> Self {
+        let nvmem = &system.nvmem;
         let state            = nvmem.try_get_state().unwrap_or(State::Idle);
         println!("Initial state: {:?}", state);
         let is_calibrated = state > State::Calibration;
+        let gps_lock = is_calibrated;
 
         let timestamps       = nvmem.get_transitions();
         let flash_write_addr = nvmem.get_flash_write_addr();
@@ -100,7 +111,9 @@ impl StateMachine {
         let mut data = SensorData::new(current_time.clone());
         data.reset = true;
 
-        Self { state, is_calibrated, flash_write_addr, ref_pressure, current_time, timestamps, data }
+        let mut s = Self { state, is_calibrated, flash_write_addr, ref_pressure, current_time, timestamps, data, gps_lock};
+        s.state_transition_actions(state, system);
+        s
     }
 
     /// Update internal time and also clears data, ready for next iteration
@@ -110,19 +123,27 @@ impl StateMachine {
     }
 
     /// Process state actions and update state
-    pub fn process(&mut self, system: &mut McuBoard) {
+    pub fn process(&mut self, system: &mut System) {
         self.state_actions(system);
         let new_state = self.next_state(system);
-        self.state_transition_actions(new_state, system);
+        if new_state != self.state {
+            self.state_transition_actions(new_state, system);
+        }
         self.state = new_state;
     }
 
     /// Perform actions that should be executed while in a particular mode (Moore-style)
-    fn state_actions(&mut self, system: &mut McuBoard) {
+    fn state_actions(&mut self, system: &mut System) {
         use State::*;
         match self.state {
+            Calibration | Preflight | Flight => {
+                self.poll_gps();
+            },
+            _ => (),
+        }
+        match self.state {
             Calibration => {
-                if let Ok(p) = system.barometer.pressure() {
+                if !self.is_calibrated && let Ok(p) = system.barometer.pressure() {
                     unsafe{ println!("Reference pressure: {}", p.get::<pascal>().to_int_unchecked::<i32>()) };
                     self.ref_pressure = p;
                     system.nvmem.store_calibration_pressure(p.get::<pascal>());
@@ -135,6 +156,11 @@ impl StateMachine {
 
                     self.is_calibrated = true;
                 }
+                self.gps_lock = critical_section::with(|cs| {
+                    if let Some(ref gga) = *GGA_DATA.borrow_ref(cs) {
+                        gga.fix_type != GpsFixType::None
+                    } else { false }
+                });
             },
             Preflight => {
                 self.read_sensors(system);
@@ -150,21 +176,34 @@ impl StateMachine {
         };
     }
 
-    /// Perform actions that should occur once when transitioning between states (Mealy-style)
-    fn state_transition_actions(&mut self, new_state: State, system: &mut McuBoard) {
-        if new_state != self.state {
-            match new_state {
-                State::Idle | State::Recovered => system.beacon_mode(BeaconMode::AutoSleep),
-                _ => system.beacon_mode(BeaconMode::AutoActive),
-            };
-            println!("New state: {:?}", new_state);
-            system.nvmem.store_state(new_state);
-            system.nvmem.store_transitions(&self.timestamps);
+    fn poll_gps(&mut self) {
+        if MSG_READY.load(Ordering::Relaxed) {
+            critical_section::with(|cs| {
+                let mut msg_buf = *GPS_MSG_BUF.borrow_ref_mut(cs);
+                if let Ok(gga) =  GgaMessage::try_from(&msg_buf) {
+                    GGA_DATA.replace(cs, Some(gga));
+                }
+                msg_buf.clear();
+            });
+            MSG_READY.store(false, Ordering::Relaxed);
         }
     }
 
+    /// Perform actions that should occur once when transitioning between states (Mealy-style)
+    fn state_transition_actions(&mut self, new_state: State, system: &mut System) {
+        use State::*;
+        match new_state {
+            Idle | Recovered => system.beacon_mode(BeaconMode::AutoSleep),
+            Calibration | Preflight | Flight => system.beacon_mode(BeaconMode::Manual),
+            Landed => system.beacon_mode(BeaconMode::AutoActive),
+        };
+        println!("New state: {:?}", new_state);
+        system.nvmem.store_state(new_state);
+        system.nvmem.store_transitions(&self.timestamps);
+    }
+
     /// Determine what the next state ought to be
-    fn next_state(&mut self, system: &mut McuBoard) -> State {
+    fn next_state(&mut self, system: &mut System) -> State {
         use State::*;
 
         // Short circuit to Recovered if disarmed
@@ -177,13 +216,22 @@ impl StateMachine {
             Idle => {
                 if system.is_armed() {
                     self.data.transition = Some((Idle, Calibration));
+                    self.timestamps.calibration = Some(self.current_time.clone());
                     Calibration
                 } else {
                     Idle
                 }
             },
             Calibration => {
-                if self.is_calibrated {
+                const CALIBRATION_TIMEOUT_SEC: i32 = 2*60;
+                let timeout = if let Some(calib_start) = &self.timestamps.calibration {
+                    self.current_time.seconds_since(calib_start) > CALIBRATION_TIMEOUT_SEC
+                } else { false };
+
+                if (self.is_calibrated && self.gps_lock) || timeout {
+                    if timeout {
+                        println!("Calibration timeout");
+                    }
                     self.timestamps.preflight = Some(self.current_time.clone());
                     self.data.transition = Some((Calibration, Preflight));
                     Preflight
@@ -192,10 +240,10 @@ impl StateMachine {
                 }
             },
             Preflight => {
-                let above_20m = self.data.baro.unwrap_or_default().2 > 20.0;
+                let above_10m = self.data.baro.unwrap_or_default().2 > 10.0;
                 let above_2gs = self.data.imu.unwrap_or_default().0.z < -2_000;
 
-                if above_20m || above_2gs {
+                if above_10m || above_2gs {
                     self.timestamps.flight = Some(self.current_time.clone());
                     self.data.transition = Some((Preflight, Flight));
                     Flight
@@ -239,6 +287,9 @@ impl StateMachine {
                 } else { false };
 
                 if (below_20m && not_accelerating && not_rotating) || timeout {
+                    if timeout {
+                        dbg_println!("Flight timeout");
+                    }
                     self.timestamps.landed = Some(self.current_time.clone());
                     self.data.transition = Some((Flight, Landed));
                     Landed
@@ -259,36 +310,46 @@ impl StateMachine {
         }
     }
 
-    fn read_sensors(&mut self, system: &mut McuBoard) {
-        const IMU_POLL_FREQ_HZ:    u16 = MAIN_LOOP_FREQ_HZ / 1; // poll every loop
+    fn read_sensors(&mut self, system: &mut System) {
+        const IMU_POLL_FREQ_HZ:    u16 = MAIN_LOOP_FREQ_HZ / 1; // poll as fast as possible
         const BARO_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 1;
-        const BATT_POLL_FREQ_HZ:   u16 = MAIN_LOOP_FREQ_HZ / 100; // poll once every 100 loops
+        const GPS_POLL_FREQ_HZ:    u16 = 10;
+        const BATT_POLL_FREQ_HZ:   u16 = 1;
+        const RADIO_TX_FREQ_HZ:    u16 = 1;
 
         const IMU_POLL_PERIOD_MS:  u16 = 1000 / IMU_POLL_FREQ_HZ;
         const BARO_POLL_PERIOD_MS: u16 = 1000 / BARO_POLL_FREQ_HZ;
+        const GPS_POLL_PERIOD_MS:  u16 = 1000 / GPS_POLL_FREQ_HZ;
         const BATT_POLL_PERIOD_MS: u16 = 1000 / BATT_POLL_FREQ_HZ;
+        const RADIO_TX_PERIOD_MS:  u16 = 1000 / RADIO_TX_FREQ_HZ;
 
-        if self.current_time.millis.is_multiple_of(IMU_POLL_PERIOD_MS) {
-            if let Ok((acc, gyro, temp)) = system.imu.measure_millis() {
+        if self.current_time.millis.is_multiple_of(IMU_POLL_PERIOD_MS)
+        && let Ok((acc, gyro, temp)) = system.imu.measure_millis() {
                 self.data.imu = Some((acc, gyro, temp));
                 dbg_println!("gyro x: {} md/s, y: {} md/s, z: {} md/s,", gyro.x, gyro.y, gyro.z);
                 dbg_println!("accel x: {} mgees, y: {} mgees, z: {} mgees,", acc.x, acc.y, acc.z);
             }
-        }
-        if self.current_time.millis.is_multiple_of(BARO_POLL_PERIOD_MS) {
-            if let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
-                let altitude = fast_altitude(pressure, self.ref_pressure);
-                self.data.baro = Some((pressure.get::<pascal>(), temperature.get::<degree_celsius>(), altitude));
-                dbg_println!(
-                    "pressure: {} Pa, temperature: {} C, altitude: {} dm", 
-                    unsafe { pressure.get::<pascal>().to_int_unchecked::<i32>() }, 
-                    unsafe { temperature.get::<degree_celsius>().to_int_unchecked::<i32>() }, 
-                    unsafe { (10.0*altitude).to_int_unchecked::<i32>() }
-                )
-            }
+        if self.current_time.millis.is_multiple_of(BARO_POLL_PERIOD_MS)
+        && let Ok((temperature, pressure)) = system.barometer.temperature_pressure() {
+            let altitude = fast_altitude(pressure, self.ref_pressure);
+            self.data.baro = Some((pressure.get::<pascal>(), temperature.get::<degree_celsius>(), altitude));
+            dbg_println!(
+                "pressure: {} Pa, temperature: {} C, altitude: {} dm", 
+                unsafe { pressure.get::<pascal>().to_int_unchecked::<i32>() }, 
+                unsafe { temperature.get::<degree_celsius>().to_int_unchecked::<i32>() }, 
+                unsafe { (10.0*altitude).to_int_unchecked::<i32>() }
+            )
         }
         if self.current_time.millis.is_multiple_of(BATT_POLL_PERIOD_MS) {
             self.data.battery = Some(system.battery_voltage_mv());
+        }
+        if self.current_time.millis.is_multiple_of(GPS_POLL_PERIOD_MS) {
+            self.data.gps = critical_section::with(|cs| GGA_DATA.borrow_ref(cs).clone());
+        }
+        if self.current_time.millis.is_multiple_of(RADIO_TX_PERIOD_MS)
+        && let Some(ref gga) = critical_section::with(|cs| GGA_DATA.borrow_ref(cs).clone())
+        && system.radio.transmit_is_complete().is_ok() {
+            let _ = system.radio.transmit_start(&gga.encode_binary());
         }
     }
 }
@@ -356,26 +417,29 @@ pub fn fast_ln(x: f32) -> f32 {
 
 #[derive(Default)]
 struct Timestamps {
+    calibration: Option<UtcTime>,
     preflight: Option<UtcTime>,
     flight: Option<UtcTime>,
     landed: Option<UtcTime>,
     recovered: Option<UtcTime>,
 }
 impl Timestamps {
-    pub fn from_bytes(bytes: &[u8;20] ) -> Self {
-        let preflight = UtcTime::try_from_bytes(bytes[0..5].try_into().unwrap());
-        let flight    = UtcTime::try_from_bytes(bytes[5..10].try_into().unwrap());
-        let landed    = UtcTime::try_from_bytes(bytes[10..15].try_into().unwrap());
-        let recovered = UtcTime::try_from_bytes(bytes[15..20].try_into().unwrap());
+    pub fn from_bytes(bytes: &[u8;25] ) -> Self {
+        let calibration = UtcTime::try_from_bytes(bytes[0..5].try_into().unwrap());
+        let preflight   = UtcTime::try_from_bytes(bytes[5..10].try_into().unwrap());
+        let flight      = UtcTime::try_from_bytes(bytes[10..15].try_into().unwrap());
+        let landed      = UtcTime::try_from_bytes(bytes[15..20].try_into().unwrap());
+        let recovered   = UtcTime::try_from_bytes(bytes[20..25].try_into().unwrap());
 
-        Timestamps { preflight, flight, landed, recovered } 
+        Timestamps { calibration, preflight, flight, landed, recovered } 
     }
-    pub fn as_bytes(&self) -> [u8; 20] {
-        let mut arr = [0xFFu8; 20];
-        if let Some(time) = &self.preflight { arr[0..5].copy_from_slice(&time.as_bytes()); }
-        if let Some(time) = &self.flight    { arr[5..10].copy_from_slice(&time.as_bytes()); }
-        if let Some(time) = &self.landed    { arr[10..15].copy_from_slice(&time.as_bytes()); }
-        if let Some(time) = &self.recovered { arr[15..20].copy_from_slice(&time.as_bytes()); }
+    pub fn as_bytes(&self) -> [u8; 25] {
+        let mut arr = [0xFFu8; 25];
+        if let Some(time) = &self.calibration { arr[0..5].copy_from_slice(&time.as_bytes()); }
+        if let Some(time) = &self.preflight   { arr[5..10].copy_from_slice(&time.as_bytes()); }
+        if let Some(time) = &self.flight      { arr[10..15].copy_from_slice(&time.as_bytes()); }
+        if let Some(time) = &self.landed      { arr[15..20].copy_from_slice(&time.as_bytes()); }
+        if let Some(time) = &self.recovered   { arr[20..25].copy_from_slice(&time.as_bytes()); }
 
         arr
     }
@@ -387,12 +451,12 @@ struct SensorData {
     pub imu: Option<(I16x3, I32x3, i16)>, // 20B
     pub baro: Option<(f32, f32, f32)>, // 12B
     pub battery: Option<u16>, // 2B
-    pub gps: Option<(Degrees, Degrees, Altitude)>, // 16B
+    pub gps: Option<GgaMessage>, // 23B
     pub reset: bool, // 0B (bitflag byte only)
     pub transition: Option<(State, State)>, // 1B
 }
 impl SensorData {
-    pub const MAX_SIZE: usize = 5 + 20 + 12 + 2 + 16 + 1; // size_of() includes alignment which we don't care about
+    pub const MAX_SIZE: usize = 5 + 20 + 12 + 2 + 23 + 1; // size_of() includes alignment which we don't care about
     pub fn new(time: UtcTime) -> Self {
         Self { time, ..Default::default() }
     }
@@ -436,12 +500,15 @@ impl SensorData {
         if let Some(batt_mv) = &self.battery {
             vec.extend(batt_mv.to_le_bytes());
         }
-        if let Some((latitude, longitude, altitude)) = &self.gps {
+        if let Some(GgaMessage { utc_time, latitude, longitude, fix_type, num_satellites, altitude_msl }) = &self.gps {
+            vec.extend(utc_time.as_bytes());
             vec.extend(latitude.degrees.to_le_bytes());
             vec.extend(latitude.degrees_millionths.to_le_bytes());
             vec.extend(longitude.degrees.to_le_bytes());
             vec.extend(longitude.degrees_millionths.to_le_bytes());
-            vec.extend(altitude.decimetres.to_le_bytes());
+            vec.push(*fix_type as u8);
+            vec.push(*num_satellites);
+            vec.extend(altitude_msl.decimetres.to_le_bytes());
         }
         if let Some((state1, state2)) = self.transition {
             vec.push((state1 as u8) << 4 | (state2 as u8) << 0);
@@ -455,4 +522,20 @@ impl SensorData {
 fn RTC() {
     critical_section::with(|cs| CURRENT_TIME.borrow_ref_mut(cs).increment());
     unsafe { msp430fr2355::Peripherals::steal().RTC.rtciv.read(); } // Clear interrupt flag
+}
+
+static MSG_READY: AtomicBool = AtomicBool::new(false);
+#[interrupt]
+fn EUSCI_A1() {
+    let a1 = unsafe { msp430fr2355::Peripherals::steal().E_USCI_A1 };
+    // If we've received a character, append it to the message (provided there isn't already a complete message waiting).
+    if a1.uca1iv().read().uciv().is_ucrxifg() {
+        let chr = a1.uca1rxbuf().read().ucrxbuf().bits();
+        if !MSG_READY.load(Ordering::Relaxed) {
+            critical_section::with(|cs| GPS_MSG_BUF.borrow_ref_mut(cs).push(chr as char) );
+            if chr == b'\n' {
+                MSG_READY.store(true, Ordering::Relaxed);
+            }
+        }
+    }
 }
