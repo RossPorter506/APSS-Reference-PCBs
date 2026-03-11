@@ -1,0 +1,247 @@
+// An example board support package for a stack using the MCU and Beacon boards.
+
+#![allow(dead_code)]
+use embedded_hal::{digital::InputPin, pwm::SetDutyCycle};
+use msp430fr2x5x_hal::{ 
+    clock::{Clock, ClockConfig, DcoclkFreqSel, MclkDiv, REFOCLK_FREQ_HZ, SmclkDiv}, 
+    delay::SysDelay, 
+    ehal::digital::OutputPin, 
+    fram::Fram, 
+    gpio::{Batch, P1, P2, P3, P4, P5}, 
+    pac::{self, Tb0, Tb1, Tb2}, 
+    pmm::Pmm, 
+    pwm::{CCR1, Pwm, PwmParts3, TimerConfig, TimerDiv, TimerExDiv}, 
+    spi::SpiConfig, 
+    timer::{Timer, TimerParts3}, 
+    watchdog::Wdt
+};
+use crate::{gps::Gps, lora::Radio, pin_mappings::*};
+
+/// Top-level object representing the board.
+/// 
+/// Not all peripherals are configured. If you need more, add their configuration code to ::configure().
+pub struct Board {
+    pub delay: SysDelay,
+    pub gps: Gps,
+    pub radio: Radio,
+    pub radio_delay_timer: Timer<Tb1>,
+    pub audio_pulse_timer: Timer<Tb0>,
+    pub audio_pwm:   Pwm<Tb2, CCR1>,
+    tristate_en: TristateEnPin,
+    bctrl0: BCtrl0Pin,
+    bctrl1: BCtrl1Pin,
+}
+impl Board {
+    pub fn check_mode(&mut self) -> Mode {
+        match (self.bctrl1.is_high().unwrap(), self.bctrl0.is_high().unwrap()) {
+            (false, false) => Mode::AutoSleep,
+            (false, true)  => Mode::AutoBeep,
+            (true,  false) => Mode::AutoActive,
+            (true,  true)  => Mode::Manual,
+        }
+    }
+    /// Steal GPIO registers and manually return shared pins to their configured state
+    pub fn drive_shared_bus(&mut self) {
+        // Disconnect stack from shared bus
+        self.tristate_en.set_high();
+
+        // Ideally the HAL would let us return pins by consuming the peripheral using them, but
+        // instead we go behind it's back and try not to shoot ourselves in the foot.
+        unsafe {
+            let regs = pac::Peripherals::steal();
+            // Set pins to function mode
+            regs.p4.p4sel0().set_bits(|w| w.bits(1<<3 | 1<<2 | 1<<1)); // P4.1+2+3: MOSI, MISO, SCK
+            regs.p1.p1sel0().set_bits(|w| w.bits(1<<6 | 1<<7)); // P1.6+7: GPS Tx + Rx
+
+            // Set to outputs
+            regs.p2.p2dir().set_bits(|w| w.bits(1<<3)); // P2.3: LoRa Reset
+            regs.p3.p3dir().set_bits(|w| w.bits(1<<3)); // P3.3: GPS Reset
+            regs.p4.p4dir().set_bits(|w| w.bits(1<<0)); // P4.0: LoRa CS
+        }
+    }
+    /// Steal GPIO registers and manually set shared pins to Hi-Z / inputs
+    pub fn yield_shared_bus(&mut self) {
+        // Ideally the HAL would let us return pins by consuming the peripheral using them, but
+        // instead we go behind it's back and try not to shoot ourselves in the foot.
+        // Set shared pins to Hi-Z
+        unsafe {
+            let regs = pac::Peripherals::steal();
+            // Set pins to GPIO mode
+            regs.p4.p4sel0().clear_bits(|w| w.bits( !(1<<3 | 1<<2 | 1<<1) )); // MOSI, MISO, SCK
+            regs.p1.p1sel0().clear_bits(|w| w.bits( !(1<<6 | 1<<7) )); // GPS Tx + Rx
+
+            // Set to inputs
+            regs.p2.p2dir().clear_bits(|w| w.bits( !(1<<3) )); // P2.3: LoRa Reset
+            regs.p3.p3dir().clear_bits(|w| w.bits( !(1<<3) )); // P3.3: GPS Reset
+            regs.p4.p4dir().clear_bits(|w| w.bits( !(1<<0) )); // P4.0: LoRa CS
+        }
+        
+        // Connect stack to shared bus
+        self.tristate_en.set_low();
+    }
+    /// Make the buzzer buzz for 100ms every 3 seconds.
+    pub fn manage_buzzer(&mut self) {
+        if self.audio_pulse_timer.count() > AUDIO_TIMER_TOGGLE_POINT {
+            self.audio_pwm.set_duty_cycle_percent(50); // Buzzer on
+        } else {
+            self.audio_pwm.set_duty_cycle_fully_off(); // Buzzer off
+        }
+    }
+}
+
+// Radio delay timer running off Aclk = Refoclk = 32768 Hz, so this gives a 1 sec timer.
+pub const RADIO_DELAY_MAX: u16 = REFOCLK_FREQ_HZ;
+
+// With Aclk = Refoclk = 32768Hz, with a /3 divider on a timer counting to 32768 takes 3 sec
+const AUDIO_TIMER_MAX: u16 = REFOCLK_FREQ_HZ;
+// When the timer is above this value we are between 2.9 and 3 sec. Used to turn on the buzzer for a short beep
+const AUDIO_TIMER_TOGGLE_POINT: u16 = ((AUDIO_TIMER_MAX as u32 * 29) / 30) as u16;
+
+/// Call this function ONCE at the beginning of your program.
+pub fn configure() -> Board {
+    // Take hardware registers and disable watchdog
+    let regs = msp430fr2355::Peripherals::take().unwrap();
+    let _wdt = Wdt::constrain(regs.wdt_a);
+
+    // Configure GPIO.
+    let pins = Gpio::configure(regs.p1, regs.p2, regs.p3, regs.p4, regs.p5, regs.pmm, regs.sys);
+    let (tristate_en, bctrl0, bctrl1)  = (pins.tristate_en, pins.bctrl0, pins.bctrl1);
+    
+    // Configure clocks to get accurate delay timing, and used by other peripherals
+    let mut fram = Fram::new(regs.frctl);
+    let (smclk, aclk, delay) = ClockConfig::new(regs.cs)
+        .mclk_dcoclk(DcoclkFreqSel::_16MHz, MclkDiv::_1)
+        .smclk_on(SmclkDiv::_1)
+        .aclk_refoclk() // 32768 Hz
+        .freeze(&mut fram);
+    
+    // SPI, used by the LoRa radio
+    const SPI_FREQ_HZ: u32 = 250_000; // 250kHz is arbitrary
+    let clk_div = (smclk.freq() / SPI_FREQ_HZ) as u16;
+    let spi_bus = SpiConfig::new(regs.e_usci_a1, embedded_hal::spi::MODE_0, true)
+        .to_master_using_smclk(&smclk, clk_div)
+        .single_master_bus(pins.miso, pins.mosi, pins.sclk);
+    
+    // LoRa radio
+    let radio = crate::lora::new(spi_bus, pins.lora_cs, pins.lora_reset, delay);
+
+    // GPS
+    let gps = crate::gps::Gps::new(regs.e_usci_a0, &smclk, pins.gps_tx, pins.gps_rx, pins.gps_en);
+
+    // Audio beep timer - used to generate ~100ms pulse every ~3sec
+    let timer_parts = TimerParts3::new(regs.tb0, TimerConfig::aclk(&aclk).clk_div(TimerDiv::_1, TimerExDiv::_3));
+    let mut audio_pulse_timer = timer_parts.timer;
+    audio_pulse_timer.start(AUDIO_TIMER_MAX);
+
+    // Audio PWM - generates a 4kHz 50% duty cycle
+    const AUDIO_FREQUENCY_HZ: u32 = 4_000;
+    let divider = (smclk.freq() / AUDIO_FREQUENCY_HZ) as u16;
+    let timer_parts = PwmParts3::new(regs.tb2, TimerConfig::smclk(&smclk), divider);
+    let audio_pwm = timer_parts.pwm1.init(pins.audio_pwm);
+
+    // LoRa timer - enforces a minimum time between transmissions
+    let timer_parts = TimerParts3::new(regs.tb1, TimerConfig::aclk(&aclk));
+    let mut radio_delay_timer = timer_parts.timer;
+    radio_delay_timer.start(RADIO_DELAY_MAX);
+
+    Board {delay, gps, radio, audio_pulse_timer, audio_pwm, radio_delay_timer, tristate_en, bctrl0, bctrl1}
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
+#[repr(u8)]
+/// The mode that the beacon board is in. Driven by the bctrl0 and bctrl1 pins.
+pub enum Mode {
+    /// Do nothing
+    AutoSleep = 0b00,
+    /// Buzzer active
+    AutoBeep = 0b01,
+    /// Buzzer active and forwards GPS packets to radio
+    #[default]
+    AutoActive = 0b10,
+    /// Exposes peripherals to the stack to be driven by something else.
+    Manual = 0b11,
+}
+impl Mode {
+    pub fn beeps(&self) -> bool {
+        *self != Mode::AutoSleep
+    }
+    pub fn is_auto(&self) -> bool {
+        *self != Mode::Manual 
+    }
+    pub fn transmits(&self) -> bool {
+        *self == Mode::AutoActive
+    }
+    pub fn is_idle(&self) -> bool {
+        *self == Mode::AutoSleep
+    }
+}
+
+// Pins used by other peripherals.
+struct Gpio {
+    miso:           SpiMisoPin,
+    mosi:           SpiMosiPin,
+    sclk:           SpiSclkPin,
+    lora_reset:     RadioResetPin,
+    lora_cs:        RadioCsPin,
+    gps_tx:         GpsTxPin,
+    gps_rx:         GpsRxPin,
+    gps_reset:      GpsResetPin,
+    gps_en:         GpsEnPin,
+    bctrl0:         BCtrl0Pin,
+    bctrl1:         BCtrl1Pin,
+    tristate_en:    TristateEnPin,
+    audio_pwm:      AudioPwmPin,
+}
+impl Gpio {
+    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, pmm: pac::Pmm, sys: pac::Sys) -> Self {
+        let (pmm, _) = Pmm::new(pmm, sys);
+
+        // Port 5
+        let port5 = Batch::new(p5)
+            .config_pin1(|p| p.to_output())
+            .config_pin0(|p| p.to_output())
+            .split(&pmm);
+        let mut tristate_en = port5.pin1;
+        tristate_en.set_high(); // Disconnected by default
+        let audio_pwm = port5.pin0.to_alternate1();
+
+        // Port 4
+        let port4 = Batch::new(p4)
+            .config_pin0(|p| p.to_output())
+            .config_pin4(|p| p.pulldown())
+            .config_pin5(|p| p.pullup())
+            .split(&pmm);
+        let sclk = port4.pin1.to_alternate1();
+        let mosi = port4.pin3.to_alternate1();
+        let miso = port4.pin2.to_alternate1();
+        let mut lora_cs = port4.pin0;
+        lora_cs.set_high();
+        // Default: AutoActive = 0b10
+        let bctrl0 = port4.pin4;
+        let bctrl1 = port4.pin5;
+
+        // Port 3
+        let port3 = Batch::new(p3)
+            .config_pin2(|p| p.to_output())
+            .config_pin3(|p| p.to_output())
+            .split(&pmm);
+        let mut gps_reset = port3.pin3;
+        gps_reset.set_high();
+        let mut gps_en = port3.pin2;
+        gps_en.set_high();
+
+        // Port 2
+        let port2 = Batch::new(p2)
+            .config_pin3(|p| p.to_output())
+            .split(&pmm);
+        let mut lora_reset = port2.pin3;
+        lora_reset.set_high();
+
+        // Port 1
+        let port1 = Batch::new(p1).split(&pmm);
+        let gps_tx = port1.pin7.to_alternate1();
+        let gps_rx = port1.pin6.to_alternate1();
+
+        Gpio {mosi, miso, sclk, lora_cs, lora_reset, gps_rx, gps_tx, gps_reset, gps_en, bctrl0, bctrl1, tristate_en, audio_pwm}
+    }
+}
