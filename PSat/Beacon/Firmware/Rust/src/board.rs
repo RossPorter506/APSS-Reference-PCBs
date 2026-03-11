@@ -3,17 +3,17 @@
 #![allow(dead_code)]
 use embedded_hal::{digital::InputPin, pwm::SetDutyCycle};
 use msp430fr2x5x_hal::{ 
-    clock::{Clock, ClockConfig, DcoclkFreqSel, MclkDiv, REFOCLK, SmclkDiv}, 
+    clock::{Clock, ClockConfig, DcoclkFreqSel, MclkDiv, REFOCLK_FREQ_HZ, SmclkDiv}, 
     delay::SysDelay, 
     ehal::digital::OutputPin, 
     fram::Fram, 
     gpio::{Batch, P1, P2, P3, P4, P5}, 
-    pac::{self, PMM, TB0, TB1, TB2}, 
+    pac::{self, Tb0, Tb1, Tb2}, 
     pmm::Pmm, 
     pwm::{CCR1, Pwm, PwmParts3, TimerConfig, TimerDiv, TimerExDiv}, 
     spi::SpiConfig, 
     timer::{Timer, TimerParts3}, 
-    watchdog::Wdt,
+    watchdog::Wdt
 };
 use crate::{gps::Gps, lora::Radio, pin_mappings::*};
 
@@ -24,9 +24,9 @@ pub struct Board {
     pub delay: SysDelay,
     pub gps: Gps,
     pub radio: Radio,
-    pub radio_delay_timer: Timer<TB1>,
-    pub audio_pulse_timer: Timer<TB0>,
-    pub audio_pwm:   Pwm<TB2, CCR1>,
+    pub radio_delay_timer: Timer<Tb1>,
+    pub audio_pulse_timer: Timer<Tb0>,
+    pub audio_pwm:   Pwm<Tb2, CCR1>,
     tristate_en: TristateEnPin,
     bctrl0: BCtrl0Pin,
     bctrl1: BCtrl1Pin,
@@ -50,13 +50,13 @@ impl Board {
         unsafe {
             let regs = pac::Peripherals::steal();
             // Set pins to function mode
-            regs.P4.p4sel0.set_bits(|w| w.bits(1<<3 | 1<<2 | 1<<1)); // P4.1+2+3: MOSI, MISO, SCK
-            regs.P1.p1sel0.set_bits(|w| w.bits(1<<6 | 1<<7)); // P1.6+7: GPS Tx + Rx
+            regs.p4.p4sel0().set_bits(|w| w.bits(1<<3 | 1<<2 | 1<<1)); // P4.1+2+3: MOSI, MISO, SCK
+            regs.p1.p1sel0().set_bits(|w| w.bits(1<<6 | 1<<7)); // P1.6+7: GPS Tx + Rx
 
             // Set to outputs
-            regs.P2.p2dir.set_bits(|w| w.bits(1<<3)); // P2.3: LoRa Reset
-            regs.P3.p3dir.set_bits(|w| w.bits(1<<3)); // P3.3: GPS Reset
-            regs.P4.p4dir.set_bits(|w| w.bits(1<<0)); // P4.0: LoRa CS
+            regs.p2.p2dir().set_bits(|w| w.bits(1<<3)); // P2.3: LoRa Reset
+            regs.p3.p3dir().set_bits(|w| w.bits(1<<3)); // P3.3: GPS Reset
+            regs.p4.p4dir().set_bits(|w| w.bits(1<<0)); // P4.0: LoRa CS
         }
     }
     /// Steal GPIO registers and manually set shared pins to Hi-Z / inputs
@@ -67,13 +67,13 @@ impl Board {
         unsafe {
             let regs = pac::Peripherals::steal();
             // Set pins to GPIO mode
-            regs.P4.p4sel0.clear_bits(|w| w.bits( !(1<<3 | 1<<2 | 1<<1) )); // MOSI, MISO, SCK
-            regs.P1.p1sel0.clear_bits(|w| w.bits( !(1<<6 | 1<<7) )); // GPS Tx + Rx
+            regs.p4.p4sel0().clear_bits(|w| w.bits( !(1<<3 | 1<<2 | 1<<1) )); // MOSI, MISO, SCK
+            regs.p1.p1sel0().clear_bits(|w| w.bits( !(1<<6 | 1<<7) )); // GPS Tx + Rx
 
             // Set to inputs
-            regs.P2.p2dir.clear_bits(|w| w.bits( !(1<<3) )); // P2.3: LoRa Reset
-            regs.P3.p3dir.clear_bits(|w| w.bits( !(1<<3) )); // P3.3: GPS Reset
-            regs.P4.p4dir.clear_bits(|w| w.bits( !(1<<0) )); // P4.0: LoRa CS
+            regs.p2.p2dir().clear_bits(|w| w.bits( !(1<<3) )); // P2.3: LoRa Reset
+            regs.p3.p3dir().clear_bits(|w| w.bits( !(1<<3) )); // P3.3: GPS Reset
+            regs.p4.p4dir().clear_bits(|w| w.bits( !(1<<0) )); // P4.0: LoRa CS
         }
         
         // Connect stack to shared bus
@@ -90,10 +90,10 @@ impl Board {
 }
 
 // Radio delay timer running off Aclk = Refoclk = 32768 Hz, so this gives a 1 sec timer.
-pub const RADIO_DELAY_MAX: u16 = REFOCLK;
+pub const RADIO_DELAY_MAX: u16 = REFOCLK_FREQ_HZ;
 
 // With Aclk = Refoclk = 32768Hz, with a /3 divider on a timer counting to 32768 takes 3 sec
-const AUDIO_TIMER_MAX: u16 = REFOCLK;
+const AUDIO_TIMER_MAX: u16 = REFOCLK_FREQ_HZ;
 // When the timer is above this value we are between 2.9 and 3 sec. Used to turn on the buzzer for a short beep
 const AUDIO_TIMER_TOGGLE_POINT: u16 = ((AUDIO_TIMER_MAX as u32 * 29) / 30) as u16;
 
@@ -101,15 +101,15 @@ const AUDIO_TIMER_TOGGLE_POINT: u16 = ((AUDIO_TIMER_MAX as u32 * 29) / 30) as u1
 pub fn configure() -> Board {
     // Take hardware registers and disable watchdog
     let regs = msp430fr2355::Peripherals::take().unwrap();
-    let _wdt = Wdt::constrain(regs.WDT_A);
+    let _wdt = Wdt::constrain(regs.wdt_a);
 
     // Configure GPIO.
-    let pins = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.PMM);
+    let pins = Gpio::configure(regs.p1, regs.p2, regs.p3, regs.p4, regs.p5, regs.pmm, regs.sys);
     let (tristate_en, bctrl0, bctrl1)  = (pins.tristate_en, pins.bctrl0, pins.bctrl1);
     
     // Configure clocks to get accurate delay timing, and used by other peripherals
-    let mut fram = Fram::new(regs.FRCTL);
-    let (smclk, aclk, delay) = ClockConfig::new(regs.CS)
+    let mut fram = Fram::new(regs.frctl);
+    let (smclk, aclk, delay) = ClockConfig::new(regs.cs)
         .mclk_dcoclk(DcoclkFreqSel::_16MHz, MclkDiv::_1)
         .smclk_on(SmclkDiv::_1)
         .aclk_refoclk() // 32768 Hz
@@ -118,7 +118,7 @@ pub fn configure() -> Board {
     // SPI, used by the LoRa radio
     const SPI_FREQ_HZ: u32 = 250_000; // 250kHz is arbitrary
     let clk_div = (smclk.freq() / SPI_FREQ_HZ) as u16;
-    let spi_bus = SpiConfig::new(regs.E_USCI_A1, embedded_hal::spi::MODE_0, true)
+    let spi_bus = SpiConfig::new(regs.e_usci_a1, embedded_hal::spi::MODE_0, true)
         .to_master_using_smclk(&smclk, clk_div)
         .single_master_bus(pins.miso, pins.mosi, pins.sclk);
     
@@ -126,21 +126,21 @@ pub fn configure() -> Board {
     let radio = crate::lora::new(spi_bus, pins.lora_cs, pins.lora_reset, delay);
 
     // GPS
-    let gps = crate::gps::Gps::new(regs.E_USCI_A0, &smclk, pins.gps_tx, pins.gps_rx, pins.gps_en);
+    let gps = crate::gps::Gps::new(regs.e_usci_a0, &smclk, pins.gps_tx, pins.gps_rx, pins.gps_en);
 
     // Audio beep timer - used to generate ~100ms pulse every ~3sec
-    let timer_parts = TimerParts3::new(regs.TB0, TimerConfig::aclk(&aclk).clk_div(TimerDiv::_1, TimerExDiv::_3));
+    let timer_parts = TimerParts3::new(regs.tb0, TimerConfig::aclk(&aclk).clk_div(TimerDiv::_1, TimerExDiv::_3));
     let mut audio_pulse_timer = timer_parts.timer;
     audio_pulse_timer.start(AUDIO_TIMER_MAX);
 
     // Audio PWM - generates a 4kHz 50% duty cycle
     const AUDIO_FREQUENCY_HZ: u32 = 4_000;
     let divider = (smclk.freq() / AUDIO_FREQUENCY_HZ) as u16;
-    let timer_parts = PwmParts3::new(regs.TB2, TimerConfig::smclk(&smclk), divider);
+    let timer_parts = PwmParts3::new(regs.tb2, TimerConfig::smclk(&smclk), divider);
     let audio_pwm = timer_parts.pwm1.init(pins.audio_pwm);
 
     // LoRa timer - enforces a minimum time between transmissions
-    let timer_parts = TimerParts3::new(regs.TB1, TimerConfig::aclk(&aclk));
+    let timer_parts = TimerParts3::new(regs.tb1, TimerConfig::aclk(&aclk));
     let mut radio_delay_timer = timer_parts.timer;
     radio_delay_timer.start(RADIO_DELAY_MAX);
 
@@ -193,8 +193,8 @@ struct Gpio {
     audio_pwm:      AudioPwmPin,
 }
 impl Gpio {
-    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, pmm: PMM) -> Self {
-        let pmm = Pmm::new(pmm);
+    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, pmm: pac::Pmm, sys: pac::Sys) -> Self {
+        let (pmm, _) = Pmm::new(pmm, sys);
 
         // Port 5
         let port5 = Batch::new(p5)

@@ -6,8 +6,8 @@ edition = "2021"
 [dependencies]
 msp430 = { version = "0.4.0", features = ["critical-section-single-core"] }
 msp430-rt = "0.4.0"
-msp430fr2355 = { version = "0.5.1", features = ["rt", "critical-section"] }
-msp430fr2x5x-hal = "0.5"
+msp430fr2355 = { version = "0.6", features = ["rt", "critical-section"] }
+msp430fr2x5x-hal = {version = "0.6", features = ["msp430fr2355"]}
 
 embedded-hal = { version = "1.0" }
 embedded-hal-nb = "*"

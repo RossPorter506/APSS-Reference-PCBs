@@ -99,7 +99,7 @@ pub mod tests {
 
     pub fn range_test_tx(mut board: crate::board::Board) -> ! {
         let mut current_time = Time::default();
-        board.radio_delay_timer.start(msp430fr2x5x_hal::clock::REFOCLK); // 1 second timer
+        board.radio_delay_timer.start(msp430fr2x5x_hal::clock::REFOCLK_FREQ_HZ); // 1 second timer
         board.radio.transmit_start(&time_to_bytes(&current_time)).unwrap();
         loop {
             // Sends at most one message per second.
@@ -129,7 +129,7 @@ pub mod tests {
     pub fn range_test_rx(mut board: crate::board::Board) -> ! {
         let mut buf = [0u8; super::RFM95_FIFO_SIZE];
         let mut current_time = Time::default();
-        board.radio_delay_timer.start(msp430fr2x5x_hal::clock::REFOCLK); // 1 second timer
+        board.radio_delay_timer.start(msp430fr2x5x_hal::clock::REFOCLK_FREQ_HZ); // 1 second timer
         board.radio.recieve_start(None);
         loop {
             match board.radio.recieve_is_complete(&mut buf) {
