@@ -3,7 +3,7 @@
 use core::{cell::RefCell, fmt::Debug, num::ParseIntError};
 
 use arrayvec::{ArrayString, ArrayVec};
-use defmt::unwrap;
+use defmt::{Format, unwrap};
 use msp430::interrupt::Mutex;
 use msp430fr2x5x_hal::serial::RecvError;
 use embedded_hal_nb::serial::Read;
@@ -115,7 +115,7 @@ pub enum DataRate {
 }
 
 // A GGA packet in struct form. Useful for interpreting the results on-device.
-#[derive(Clone)]
+#[derive(Clone, Format)]
 pub struct GgaMessage {
     pub utc_time: UtcTime,
     pub latitude: Degrees,
@@ -215,7 +215,7 @@ impl Debug for GgaParseError {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Format)]
 /// A UTC timestamp
 pub struct UtcTime {
     pub hours: u8,
@@ -308,7 +308,7 @@ pub enum UtcError {
 }
 
 /// A degrees value, stored as a decimal fraction.
-#[derive(Clone)]
+#[derive(Clone, Format)]
 pub struct Degrees {
     pub degrees: i16,
     pub degrees_millionths: u32,
@@ -368,7 +368,7 @@ pub enum LatLongParseError {
     InvalidCompassDirection,
 }
 
-#[derive(Debug, uDebug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, uDebug, PartialEq, Eq, Copy, Clone, Format)]
 pub enum GpsFixType {
     None = 0,
     Gps = 1,
@@ -387,7 +387,7 @@ impl TryFrom<&str> for GpsFixType{
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Format)]
 pub struct Altitude{
     pub decimetres: i32,
 }

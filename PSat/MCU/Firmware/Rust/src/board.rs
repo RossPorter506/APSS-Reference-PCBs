@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 use bmp390::sync::Bmp390;
-use defmt::{debug, panic, println, unwrap};
+use defmt::{debug, info, panic, println, trace, unwrap};
 use embedded_storage::nor_flash::NorFlash;
 use mx25v::blocking::MX25V1606;
 use static_assertions::assert_type_eq_all;
@@ -246,6 +246,8 @@ pub fn standalone(regs: Peripherals) -> McuBoard {
 pub fn in_stack(regs: Peripherals) -> Stack {
     let (mut board, smclk, _aclk, mut used, eusci_a1) = board_config(regs);
     board.beacon_mode(BeaconMode::Manual);
+    // Wait for beacon board to initialise
+    board.delay.delay_ms(200); //TODO: Figure out how long this actually needs to be
 
     // LoRa radio
     used.lora_reset.set_low();
@@ -294,7 +296,8 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
 
     // Spare UART, useful for debug printing to a computer
     crate::serial::configure_debug_serial(used.debug_tx_pin, &smclk, regs.E_USCI_A0);
-    println!("Serial init"); // Like this!
+    println!("");
+    trace!("Serial init"); // Like this!
     
     // SPI, used by the LoRa radio
     const SPI_FREQ_HZ: u32 = 8_000_000; // Max MSP430 speed

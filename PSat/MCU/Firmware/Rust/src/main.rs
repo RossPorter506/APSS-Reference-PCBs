@@ -4,7 +4,7 @@
 #![feature(abi_msp430_interrupt)]
 
 use core::{cell::RefCell, sync::atomic::Ordering};
-use defmt::{Format, debug, info, println, warn, panic, unwrap, expect};
+use defmt::{Format, debug, error, expect, info, panic, println, trace, unwrap, warn};
 use portable_atomic::AtomicBool;
 use arrayvec::ArrayVec;
 use ::icm42670::accelerometer::vector::{I16x3, I32x3};
@@ -41,8 +41,8 @@ type System = Stack;
 
 // TODO: Make UtcTime::increment work for periods that don't evenly divide into 1000
 // TODO: Turn on buzzer only when landed
-// TODO: Store GPS data (10Hz)
-// TODO: transmit GPS data (1Hz)
+// TODO: Test storing of GPS data (10Hz)
+// TODO: Test transmission of GPS data (1Hz)
 #[entry]
 fn main() -> ! {
     let regs = unwrap!(msp430fr2355::Peripherals::take());
@@ -51,10 +51,10 @@ fn main() -> ! {
     let mut system = board::in_stack(regs); // Collect board elements, configure printing, etc.
     // Or if the Beacon board is attached:
     // let mut system = board::in_stack(regs);
-
+    system.gpio.green_led.turn_on();
     unsafe{ enable_interrupts(); }
 
-    println!("Hi!");
+    println!("Hello world!");
 
     // The 'fresh_start' feature will make the board reset from Idle every time.
     // Useful for testing, but for flight this should NOT be enabled
@@ -100,7 +100,7 @@ impl StateMachine {
     pub fn restore_from_nvmem(system: &mut System, current_time: UtcTime) -> Self {
         let nvmem = &system.nvmem;
         let state            = nvmem.try_get_state().unwrap_or(State::Idle);
-        println!("Initial state: {:?}", state);
+        info!("Initial state: {:?}", state);
         let is_calibrated = state > State::Calibration;
         let gps_lock = is_calibrated;
 
@@ -144,14 +144,16 @@ impl StateMachine {
         match self.state {
             Calibration => {
                 if !self.is_calibrated && let Ok(p) = system.barometer.pressure() {
-                    unsafe{ println!("Reference pressure: {}", p.get::<pascal>().to_int_unchecked::<i32>()) };
+                    unsafe{ info!("Reference pressure: {}", p.get::<pascal>().to_int_unchecked::<i32>()) };
                     self.ref_pressure = p;
                     system.nvmem.store_calibration_pressure(p.get::<pascal>());
 
                     system.nvmem.store_num_resets(0); // Reset count
 
+                    info!("Starting flash erase");
                     system.flash_mem.erase_chip().unwrap(); // Unwrap safe
                     system.flash_mem.wait_wip().unwrap(); // Unwrap safe
+                    info!("Flash erase complete");
                     self.flash_write_addr = 0;
 
                     self.is_calibrated = true;
@@ -181,6 +183,7 @@ impl StateMachine {
             critical_section::with(|cs| {
                 let mut msg_buf = *GPS_MSG_BUF.borrow_ref_mut(cs);
                 if let Ok(gga) =  GgaMessage::try_from(&msg_buf) {
+                    debug!("Decoded GGA message: {:?}", gga);
                     GGA_DATA.replace(cs, Some(gga));
                 }
                 msg_buf.clear();
@@ -215,10 +218,12 @@ impl StateMachine {
         match self.state {
             Idle => {
                 if system.is_armed() {
+                    info!("Moving to 'calibration'");
                     self.data.transition = Some((Idle, Calibration));
                     self.timestamps.calibration = Some(self.current_time.clone());
                     Calibration
                 } else {
+                    trace!("Still idle");
                     Idle
                 }
             },
@@ -232,10 +237,12 @@ impl StateMachine {
                     if timeout {
                         warn!("Calibration timeout");
                     }
+                    info!("Moving to preflight");
                     self.timestamps.preflight = Some(self.current_time.clone());
                     self.data.transition = Some((Calibration, Preflight));
                     Preflight
                 } else {
+                    trace!("Still calibrating");
                     Calibration
                 }
             },
@@ -244,10 +251,12 @@ impl StateMachine {
                 let above_2gs = self.data.imu.unwrap_or_default().0.z < -2_000;
 
                 if above_10m || above_2gs {
+                    info!("Moving to flight");
                     self.timestamps.flight = Some(self.current_time.clone());
                     self.data.transition = Some((Preflight, Flight));
                     Flight
                 } else {
+                    trace!("Still preflight");
                     Preflight
                 }
             },
@@ -290,19 +299,23 @@ impl StateMachine {
                     if timeout {
                         warn!("Flight timeout");
                     }
+                    info!("Moving to 'landed'");
                     self.timestamps.landed = Some(self.current_time.clone());
                     self.data.transition = Some((Flight, Landed));
                     Landed
                 } else {
+                    trace!("Still flight");
                     Flight
                 }
             },
             Landed => {
                 if system.is_disarmed() {
+                    info!("Moving to 'recovered'");
                     self.timestamps.recovered = Some(self.current_time.clone());
                     self.data.transition = Some((Landed, Recovered));
                     Recovered
                 } else {
+                    trace!("Still 'landed'");
                     Landed
                 }
             },
@@ -341,14 +354,19 @@ impl StateMachine {
             )
         }
         if self.current_time.millis.is_multiple_of(BATT_POLL_PERIOD_MS) {
-            self.data.battery = Some(system.battery_voltage_mv());
+            let bv = system.battery_voltage_mv();
+            debug!("Battery voltage: {}mV", bv);
+            self.data.battery = Some(bv);
         }
         if self.current_time.millis.is_multiple_of(GPS_POLL_PERIOD_MS) {
-            self.data.gps = critical_section::with(|cs| GGA_DATA.borrow_ref(cs).clone());
+            let gga = critical_section::with(|cs| GGA_DATA.borrow_ref(cs).clone());
+            debug!("Checking for gps data: {:?}", gga);
+            self.data.gps = gga;
         }
         if self.current_time.millis.is_multiple_of(RADIO_TX_PERIOD_MS)
         && let Some(ref gga) = critical_section::with(|cs| GGA_DATA.borrow_ref(cs).clone())
         && system.radio.transmit_is_complete().is_ok() {
+            debug!("Transmitting GPS data: {:?}", gga);
             let _ = system.radio.transmit_start(&gga.encode_binary());
         }
     }
@@ -531,6 +549,8 @@ fn EUSCI_A1() {
     // If we've received a character, append it to the message (provided there isn't already a complete message waiting).
     if a1.uca1iv().read().uciv().is_ucrxifg() {
         let chr = a1.uca1rxbuf().read().ucrxbuf().bits();
+        println!("Received GPS character '{}'", chr as char);
+        
         if !MSG_READY.load(Ordering::Relaxed) {
             critical_section::with(|cs| GPS_MSG_BUF.borrow_ref_mut(cs).push(chr as char) );
             if chr == b'\n' {
