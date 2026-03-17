@@ -14,7 +14,7 @@ use msp430fr2x5x_hal::{
     clock::{Aclk, Clock, ClockConfig, DcoclkFreqSel, MclkDiv, Smclk, SmclkDiv}, 
     delay::SysDelay, 
     fram::Fram, 
-    gpio::{Batch, Floating, Input, Output, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7, Pulldown}, 
+    gpio::{Batch, Floating, Input, Output, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7, PinNum, Pulldown}, 
     i2c::{GlitchFilter, I2cConfig}, 
     info_mem::InfoMemory, 
     pac::TB0, 
@@ -70,18 +70,27 @@ impl McuBoard {
         // Write to the pout register directly so the two pins are updated at the same instant
         let p4 = unsafe { msp430fr2355::Peripherals::steal().P4 }; // Safety: We already own P4
 
+        const CLR_MASK: u8 = Pin1::CLR_MASK & Pin0::CLR_MASK;
+        const BCTL0_SET_MASK: u8 = Pin1::SET_MASK;
+        const BCTL1_SET_MASK: u8 = Pin0::SET_MASK;
         match mode {
             BeaconMode::AutoSleep => { // 0b00
-                p4.p4out.modify(|r,w| unsafe{ w.bits(r.bits() & 0xFC) });
+                unsafe { p4.p4out.clear_bits(|w| w.bits(CLR_MASK)); }
             },
             BeaconMode::AutoBeep => { // 0b01
-                p4.p4out.modify(|r,w| unsafe{ w.bits((r.bits() & 0xFC) | 0b01) });
+                unsafe {
+                    p4.p4out.clear_bits(|w| w.bits(CLR_MASK));
+                    p4.p4out.set_bits(  |w| w.bits(BCTL0_SET_MASK));
+                }
             },
             BeaconMode::AutoActive => { // 0b10
-                p4.p4out.modify(|r,w| unsafe{ w.bits((r.bits() & 0xFC) | 0b10) });
+                unsafe {
+                    p4.p4out.clear_bits(|w| w.bits(CLR_MASK));
+                    p4.p4out.set_bits(  |w| w.bits(BCTL1_SET_MASK));
+                }
             },
             BeaconMode::Manual => { // 0b11
-                p4.p4out.modify(|r,w| unsafe{ w.bits(r.bits() | 0b11) });
+                unsafe { p4.p4out.set_bits(|w| w.bits(BCTL1_SET_MASK | BCTL0_SET_MASK)); }
             },
         };
     }
@@ -221,7 +230,26 @@ pub struct Stack {
 }
 // This is where you should implement top-level functionality unique to a stack. 
 impl Stack {
-
+    /// Prevent the buzzer from making noise, overriding the beacon board's control.
+    pub fn silence_buzzer(&mut self) {
+        // The following unsafe code relies on this assumption. If this pin changes you have to change the code too.
+        const { assert_type_eq_all!(BuzzerOverridePin, Pin<P5, Pin4, Output>); }
+        // Set the buzzer override pin to an output
+        unsafe {
+            let p5 = msp430fr2355::Peripherals::steal().P5;
+            p5.p5dir.set_bits(|w| w.bits(Pin4::SET_MASK));
+        }
+    }
+    /// Allow the beacon board to control the buzzer again.
+    pub fn restore_buzzer(&mut self) {
+        // The following unsafe code relies on this assumption. If this pin changes you have to change the code too.
+        const { assert_type_eq_all!(BuzzerOverridePin, Pin<P5, Pin4, Output>); }
+        // Set the buzzer override pin to an input
+        unsafe {
+            let p5 = msp430fr2355::Peripherals::steal().P5;
+            p5.p5dir.clear_bits(|w| w.bits(Pin4::CLR_MASK));
+        }
+    }
 }
 // Transparently implement all McuBoard methods and fields onto Stack
 // This means we can specify `stack.imu` and have it coerced to `stack.board.imu`, for instance.
@@ -401,6 +429,9 @@ pub struct Gpio {
     pub arm_pin: Pin<P2, Pin3, Input<Pulldown>>,
     pub disarm_pin: Pin<P3, Pin7, Input<Pulldown>>,
 
+    // P5.4 is explicitly dropped. We have to swap between input and output modes, so we'll use the PAC rather than the HAL.
+    // pub pin5_4: BuzzerOverridePin,
+
     // Unused UCA0 pins
     pub pin1_4: Pin<P1, Pin4, Input<Floating>>,
     pub pin1_5: Pin<P1, Pin5, Input<Floating>>,
@@ -506,6 +537,12 @@ impl Gpio {
 
         let pin5_1 = port5.pin1;
         let pin5_3 = port5.pin3;
+
+        // Set the buzzer override pin to output low when it's an output.
+        // This pin needs to move between input and output modes during operation,
+        // currently the HAL doesn't support this, so we will drop this pin and manage it manually using the PAC instead.
+        let mut buzzer_override = port5.pin4.to_output();
+        buzzer_override.set_low();
 
         let pin6_0 = port6.pin0;
         let pin6_1 = port6.pin1;

@@ -45,7 +45,6 @@ static CURRENT_TIME: Mutex<RefCell<UtcTime>> = Mutex::new(RefCell::new(UtcTime::
 type System = Stack;
 
 // TODO: Make UtcTime::increment work for periods that don't evenly divide into 1000
-// TODO: Turn on buzzer only when landed
 // TODO: Test storing of GPS data (10Hz)
 // TODO: Test transmission of GPS data (1Hz)
 #[entry]
@@ -197,11 +196,19 @@ impl StateMachine {
     /// Perform actions that should occur once when transitioning between states (Mealy-style)
     fn state_transition_actions(&mut self, new_state: State, system: &mut System) {
         use State::*;
+        // Beacon mode
         match new_state {
             Idle | Recovered => system.beacon_mode(BeaconMode::AutoSleep),
             Calibration | Preflight | Flight => system.beacon_mode(BeaconMode::Manual),
             Landed => system.beacon_mode(BeaconMode::AutoActive),
         };
+
+        // Buzzer mode
+        match new_state {
+            Landed => system.restore_buzzer(),
+            _      => system.silence_buzzer(),
+        };
+
         info!("New state: {:?}", new_state);
         system.nvmem.store_state(new_state);
         system.nvmem.store_transitions(&self.timestamps);
