@@ -29,7 +29,7 @@ use msp430fr2x5x_hal::{
 use embedded_hal::{delay::DelayNs, digital::{InputPin, OutputPin, StatefulOutputPin}};
 use embedded_hal_bus::{i2c::RefCellDevice as I2cRefCellDevice, spi::RefCellDevice as SpiRefCellDevice};
 use static_cell::StaticCell;
-use crate::{MAIN_LOOP_FREQ_HZ, SensorData, State, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, lora::Radio, pin_mappings::*};
+use crate::{MAIN_LOOP_FREQ_HZ, SensorData, State, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, led::RgbLed, lora::Radio, pin_mappings::*};
 
 /// CS pin automatically managed
 type ManagedSpi<ChipSel> = SpiRefCellDevice<'static, SensorSpi, ChipSel, SysDelay>; 
@@ -50,6 +50,7 @@ pub struct McuBoard {
     pub spi: &'static BareSpi,
     pub adc: Adc,
     pub gpio: Gpio,
+    pub status_led: StatusLed,
     pub timer_b0: Timer<TB0>,
     pub vref: InternalVRef,
     pub nvmem: NonvolatileMemory,
@@ -283,7 +284,7 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
 
     // Configure GPIO. `used` are pins consumed by other peripherals.
     let mut pmm = Pmm::new(regs.PMM);
-    let (mut gpio, used, external_pins) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, &pmm);
+    let (mut gpio, used, external_pins, status_led) = Gpio::configure(regs.P1, regs.P2, regs.P3, regs.P4, regs.P5, regs.P6, &pmm);
     let (bctl0_pin, bctl1_pin) = (used.bctl0_pin, used.bctl1_pin);
     
     // Configure clocks to get accurate delay timing, and used by other peripherals
@@ -371,35 +372,10 @@ fn board_config(regs: Peripherals) -> (McuBoard, Smclk, Aclk, ExternalUsedPins, 
     let flash_spi = unwrap!(SpiRefCellDevice::new(spi, used.flash_cs_pin, delay));
     let flash_mem = MX25V1606::new(flash_spi);
 
-    (McuBoard {barometer, delay, i2c: I2cRefCellDevice::new(i2c), imu, spi, flash_mem, adc,  timer_b0, gpio, vref, nvmem: info_mem, bctl0_pin, bctl1_pin, rtc}, smclk, aclk, external_pins, regs.E_USCI_A1)
+    (McuBoard {barometer, delay, i2c: I2cRefCellDevice::new(i2c), imu, spi, flash_mem, adc, status_led, timer_b0, gpio, vref, nvmem: info_mem, bctl0_pin, bctl1_pin, rtc}, smclk, aclk, external_pins, regs.E_USCI_A1)
 }
-
-/// The RGB LEDs are active low, which can be a little confusing. A helper struct to reduce cognitive load.
-pub struct Led<PIN: StatefulOutputPin<Error=Infallible>>(PIN);
-impl<PIN: StatefulOutputPin<Error=Infallible>> Led<PIN> {
-    pub fn new(pin: PIN) -> Self {
-        Self(pin)
-    }
-    pub fn turn_on(&mut self) {
-        self.0.set_low();
-    }
-    pub fn turn_off(&mut self) {
-        self.0.set_high();
-    }
-    pub fn toggle(&mut self) {
-        self.0.toggle();
-    }
-}
-pub type RedLed     = Led<RedLedPin>;
-pub type BlueLed    = Led<BlueLedPin>;
-pub type GreenLed   = Led<GreenLedPin>;
 
 pub struct Gpio {
-    // LEDs
-    pub red_led:   RedLed,
-    pub green_led: GreenLed,
-    pub blue_led:  BlueLed,
-
     pub half_vbat:      HalfVbatPin,
 
     // PSU monitoring and control pins
@@ -429,26 +405,24 @@ pub struct Gpio {
     pub pin1_4: Pin<P1, Pin4, Input<Floating>>,
     pub pin1_5: Pin<P1, Pin5, Input<Floating>>,
     pub pin1_6: Pin<P1, Pin6, Input<Floating>>,
-    
+
     // Unused ADC pins
     pub pin5_1: Pin<P5, Pin1, Input<Floating>>,
     pub pin5_3: Pin<P5, Pin3, Input<Floating>>,
 
     // Unused GPIO pins
-    
     pub pin2_6: Pin<P2, Pin6, Input<Floating>>,
     pub pin2_7: Pin<P2, Pin7, Input<Floating>>,
 
     pub pin3_4: Pin<P3, Pin4, Input<Floating>>,
     pub pin3_5: Pin<P3, Pin5, Input<Floating>>,
-    
 
     pub pin6_0: Pin<P6, Pin0, Input<Floating>>,
     pub pin6_1: Pin<P6, Pin1, Input<Floating>>,
     pub pin6_7: Pin<P6, Pin7, Input<Floating>>,
 }
 impl Gpio {
-    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, p6: P6, pmm: &Pmm) -> (Self, InternalUsedPins, ExternalUsedPins) {
+    fn configure(p1: P1, p2: P2, p3: P3, p4 :P4, p5: P5, p6: P6, pmm: &Pmm) -> (Self, InternalUsedPins, ExternalUsedPins, StatusLed) {
         // Configure GPIO
         let port1 = Batch::new(p1).split(pmm);
         let port2 = Batch::new(p2).split(pmm);
@@ -465,12 +439,11 @@ impl Gpio {
         bctl1_pin.set_low(); 
 
         // LEDs
-        let mut red_led = RedLed::new(port2.pin0.to_output());
-        let mut blue_led = BlueLed::new(port2.pin1.to_output());
-        let mut green_led = GreenLed::new(port2.pin2.to_output());
-        red_led.turn_off();
-        green_led.turn_off();
-        blue_led.turn_off();
+        let status_led = RgbLed::new(
+            RedLed::new(port2.pin0.to_output()), 
+            GreenLed::new(port2.pin2.to_output()), 
+            BlueLed::new(port2.pin1.to_output())
+        );
 
         let miso = port4.pin7.to_alternate1();
         let mosi = port4.pin6.to_alternate1();
@@ -539,7 +512,6 @@ impl Gpio {
         let pin6_7 = port6.pin7;
 
         let gpio = Self {
-            red_led, green_led, blue_led, 
             half_vbat, 
             power_good_1v8, power_good_3v3, 
             enable_1v8, enable_5v,
@@ -554,7 +526,7 @@ impl Gpio {
             pin6_0, pin6_1, pin6_7,
         };
 
-        (gpio, used_internal, used_external)
+        (gpio, used_internal, used_external, status_led)
     }
 }
 

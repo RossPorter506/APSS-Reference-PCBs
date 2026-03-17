@@ -24,9 +24,14 @@ mod lora;
 mod gps;
 mod icm42670;
 mod defmt_impl;
+mod led;
 
 // Internal imports
-use crate::{board::{BeaconMode, McuBoard, NonvolatileMemory, Stack}, gps::{Altitude, Degrees, GGA_DATA, GPS_MSG_BUF, GgaMessage, GpsFixType, UtcTime}};
+use crate::{
+    board::{BeaconMode, McuBoard, NonvolatileMemory, Stack}, 
+    gps::{Altitude, Degrees, GGA_DATA, GPS_MSG_BUF, GgaMessage, GpsFixType, UtcTime},
+    led::Led,
+};
 
 pub const TEAM_ID: u8 = 15;
 
@@ -49,9 +54,6 @@ fn main() -> ! {
     
     // Configure the MCU board assuming no connections to other PCBs.
     let mut system = board::in_stack(regs); // Collect board elements, configure printing, etc.
-    // Or if the Beacon board is attached:
-    // let mut system = board::in_stack(regs);
-    system.gpio.green_led.turn_on();
     unsafe{ enable_interrupts(); }
 
     println!("Hello world!");
@@ -73,9 +75,9 @@ fn main() -> ! {
     loop {
         state_machine.process(&mut system);
 
-        system.gpio.blue_led.turn_on(); // Blue LED pin serves as a counter to show how often the MCU is idle
+        system.status_led.blue.on(); // Blue LED pin serves as a counter to show how often the MCU is idle
         enter_lpm0(); // Sleep until RTC wakes us up in MAIN_LOOP_PERIOD_MS.
-        system.gpio.blue_led.turn_off();
+        system.status_led.blue.off();
 
         // After RTC interrupt wakes us up the time is updated
         let new_time = critical_section::with(|cs| CURRENT_TIME.borrow_ref(cs).clone());

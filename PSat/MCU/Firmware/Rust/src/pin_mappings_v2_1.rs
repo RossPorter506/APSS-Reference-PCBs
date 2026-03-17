@@ -5,6 +5,7 @@ use msp430fr2x5x_hal::{
     serial::{Rx, Tx}, 
     spi::Spi
 };
+use crate::led::{LedActiveLow, RgbLed};
 
 pub type GpsEusci           = E_USCI_A1;
 pub type GpsTx              = Tx<E_USCI_A1>;
@@ -24,6 +25,11 @@ pub type FlashCsPin         = Pin<P2, Pin5, Output>;
 pub type RedLedPin          = Pin<P2, Pin0, Output>;
 pub type BlueLedPin         = Pin<P2, Pin1, Output>;
 pub type GreenLedPin        = Pin<P2, Pin2, Output>;
+
+pub type RedLed             = LedActiveLow<RedLedPin>;
+pub type GreenLed           = LedActiveLow<GreenLedPin>;
+pub type BlueLed            = LedActiveLow<BlueLedPin>;
+pub type StatusLed          = RgbLed<RedLed, GreenLed, BlueLed>;
 
 pub type SpiMisoPin         = Pin<P4, Pin7, Alternate1<Input<Floating>>>;
 pub type SpiMosiPin         = Pin<P4, Pin6, Alternate1<Input<Floating>>>;
