@@ -429,6 +429,9 @@ pub struct Gpio {
     pub arm_pin: ArmPin,
     pub disarm_pin: DisarmPin,
 
+    // Pin used for printing flash memory contents to computer after recovery
+    pub data_extract_cs: ExtractCsPin,
+
     // P5.4 is explicitly dropped. We have to swap between input and output modes, so we'll use the PAC rather than the HAL.
     // pub pin5_4: BuzzerOverridePin,
 
@@ -448,7 +451,6 @@ pub struct Gpio {
     pub pin3_4: Pin<P3, Pin4, Input<Floating>>,
     pub pin3_5: Pin<P3, Pin5, Input<Floating>>,
 
-    pub pin6_0: Pin<P6, Pin0, Input<Floating>>,
     pub pin6_1: Pin<P6, Pin1, Input<Floating>>,
     pub pin6_7: Pin<P6, Pin7, Input<Floating>>,
 }
@@ -544,7 +546,8 @@ impl Gpio {
         let mut buzzer_override = port5.pin4.to_output();
         buzzer_override.set_low();
 
-        let pin6_0 = port6.pin0;
+        let mut data_extract_cs = port6.pin0.to_output();
+        data_extract_cs.set_high();
         let pin6_1 = port6.pin1;
         let pin6_7 = port6.pin7;
 
@@ -556,11 +559,12 @@ impl Gpio {
             imu_adr_pin, imu_int1_pin, imu_int2_pin,
             flash_wp_pin,
             arm_pin, disarm_pin,
+            data_extract_cs, 
             pin1_4, pin1_5, pin1_6,
             pin2_6, pin2_7,
             pin3_4, pin3_5, pin3_6,
             pin5_1, pin5_3,
-            pin6_0, pin6_1, pin6_7,
+            pin6_1, pin6_7,
         };
 
         (gpio, used_internal, used_external, status_led)

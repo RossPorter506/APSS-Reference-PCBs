@@ -67,3 +67,6 @@ pub type ImuInterrupt2Pin   = Pin<P6, Pin6, Input<Floating>>;
 
 pub type ArmPin             = Pin<P2, Pin3, Input<Pulldown>>;
 pub type DisarmPin          = Pin<P3, Pin7, Input<Pulldown>>;
+
+/// Pin used for printing flash memory contents to computer after recovery
+pub type ExtractCsPin       = Pin<P6, Pin0, Output>;

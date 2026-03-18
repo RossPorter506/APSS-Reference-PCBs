@@ -5,6 +5,7 @@
 
 use core::{cell::RefCell, sync::atomic::Ordering};
 use defmt::{Format, debug, error, expect, info, panic, println, trace, unwrap, warn};
+use embedded_hal::{delay::DelayNs, digital::OutputPin, spi::SpiBus};
 use portable_atomic::AtomicBool;
 use arrayvec::ArrayVec;
 use ::icm42670::accelerometer::vector::{I16x3, I32x3};
@@ -28,7 +29,7 @@ mod led;
 
 // Internal imports
 use crate::{
-    board::{BeaconMode, McuBoard, NonvolatileMemory, Stack}, 
+    board::{BeaconMode, FlashMem, McuBoard, NonvolatileMemory, Stack}, 
     gps::{Altitude, Degrees, GGA_DATA, GPS_MSG_BUF, GgaMessage, GpsFixType, UtcTime},
     led::Led,
 };
@@ -57,6 +58,9 @@ fn main() -> ! {
 
     println!("Hello world!");
 
+    #[cfg(feature = "recovery")]
+    recovery(system);
+
     // The 'fresh_start' feature will make the board reset from Idle every time.
     // Useful for testing, but for flight this should NOT be enabled
     // as otherwise any resets during flight will reset the state machine too.
@@ -82,6 +86,44 @@ fn main() -> ! {
         let new_time = critical_section::with(|cs| CURRENT_TIME.borrow_ref(cs).clone());
         system.nvmem.store_current_time(&new_time);
         state_machine.update_time(new_time);
+    }
+}
+
+#[allow(dead_code)]
+/// Reads data out from flash memory and transmits it over SPI.
+fn recovery(mut system: System) -> ! {
+    info!("Entering data recovery mode.");
+    /// Read this many bytes from the flash memory at once
+    const DATA_SIZE: usize = 256;
+    const { assert!(FlashMem::CAPACITY.is_multiple_of(DATA_SIZE as u32)) }
+
+    /// Size of address
+    const ADDR_SIZE: usize = 4;
+    const BUF_SIZE: usize = ADDR_SIZE + DATA_SIZE;
+    let mut bytes = [0; BUF_SIZE];
+    loop {
+        info!("Beginning data recovery...");
+        for addr in (0..board::FlashMem::CAPACITY).step_by(DATA_SIZE) {
+            // Set first four bytes as address
+            let addr_bytes = &mut bytes[0..ADDR_SIZE];
+            addr_bytes.copy_from_slice(&addr.to_le_bytes());
+
+            // Read DATA_SIZE bytes from flash into the buffer after the address bytes
+            let data_bytes = &mut bytes[ADDR_SIZE..];
+            let Ok(_) = system.flash_mem.read(addr, data_bytes) else {
+                warn!("Flash read at addr {} failed. Trying again...", addr);
+                continue;
+            };
+
+            // Transmit address + data bytes
+            let mut spi = system.spi.borrow_mut();
+            system.gpio.data_extract_cs.set_low();
+                spi.write(&bytes).unwrap(); // Unwrap ok
+                spi.flush().unwrap(); // Unwrap ok
+            system.gpio.data_extract_cs.set_high();
+        }
+        info!("Data recovery complete.");
+        system.delay.delay_ms(1000);
     }
 }
 
