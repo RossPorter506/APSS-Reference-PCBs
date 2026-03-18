@@ -1,5 +1,5 @@
 use msp430fr2x5x_hal::{
-    gpio::{Alternate1, Alternate3, Floating, Input, Output, Pin, Pin0, Pin1, Pin2, Pin3, Pin4, Pin5, Pin6, Pin7, Pullup}, 
+    gpio::{Alternate1, Alternate3, Floating, Input, Output, Pin, Pin0, Pin1, Pin2, Pin3, Pin4, Pin5, Pin6, Pin7, Pulldown, Pullup}, 
     i2c::I2cSingleMaster, 
     pac::{E_USCI_A0, E_USCI_A1, E_USCI_B0, E_USCI_B1, P1, P2, P3, P4, P5, P6}, 
     serial::{Rx, Tx}, 
@@ -64,3 +64,6 @@ pub type Bmp390InterruptPin = Pin<P6, Pin3, Input<Floating>>;
 pub type ImuAddressPin      = Pin<P6, Pin4, Output>;
 pub type ImuInterrupt1Pin   = Pin<P6, Pin5, Input<Floating>>;
 pub type ImuInterrupt2Pin   = Pin<P6, Pin6, Input<Floating>>;
+
+pub type ArmPin             = Pin<P2, Pin3, Input<Pulldown>>;
+pub type DisarmPin          = Pin<P3, Pin7, Input<Pulldown>>;

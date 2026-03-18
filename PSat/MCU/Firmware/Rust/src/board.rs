@@ -426,8 +426,8 @@ pub struct Gpio {
 
     // Arm / disarm jumper pins
     pub pin3_6: Pin<P3, Pin6, Output>,
-    pub arm_pin: Pin<P2, Pin3, Input<Pulldown>>,
-    pub disarm_pin: Pin<P3, Pin7, Input<Pulldown>>,
+    pub arm_pin: ArmPin,
+    pub disarm_pin: DisarmPin,
 
     // P5.4 is explicitly dropped. We have to swap between input and output modes, so we'll use the PAC rather than the HAL.
     // pub pin5_4: BuzzerOverridePin,
