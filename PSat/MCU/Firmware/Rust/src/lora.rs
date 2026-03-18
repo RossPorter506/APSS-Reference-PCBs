@@ -1,18 +1,19 @@
 #![allow(dead_code)]
-use core::{cell::RefCell, time::Duration};
+use core::{time::Duration};
 
+use defmt::panic;
 use embedded_hal_bus::spi::RefCellDevice;
 use embedded_lora_rfm95::{error::{IoError, RxCompleteError, TxStartError}, lora::types::{Bandwidth, CodingRate, CrcMode, HeaderMode, Polarity, PreambleLength, SpreadingFactor, SyncWord}, rfm95::{self, Rfm95Driver}};
 use msp430fr2x5x_hal::delay::SysDelay;
 use nb::Error::{WouldBlock, Other};
-use crate::pin_mappings::{RadioCsPin, RadioResetPin, RadioSpi};
+use crate::pin_mappings::{RadioCsPin, RadioResetPin, SensorSpi};
 
 const LORA_FREQ_HZ: u32 = 915_000_000;
 pub use rfm95::RFM95_FIFO_SIZE;
 
-pub fn new(spi_ref: &'static RefCell<RadioSpi>, cs_pin: RadioCsPin, reset_pin: RadioResetPin, delay: SysDelay) -> Radio {
-    let radio_spi: SPIDevice = RefCellDevice::new(spi_ref, cs_pin, delay).unwrap();
-    let mut rfm95 = match Rfm95Driver::new(radio_spi, reset_pin, delay) {
+pub fn new(spi_device: RefCellDevice<'static, SensorSpi, RadioCsPin, SysDelay>, reset_pin: RadioResetPin, delay: SysDelay) -> Radio {
+    
+    let mut rfm95 = match Rfm95Driver::new(spi_device, reset_pin, delay) {
         Ok(rfm) => rfm,
         Err(_e) => panic!("Radio reports invalid silicon revision. Is the beacon connected?"),
     };
@@ -28,12 +29,12 @@ pub fn new(spi_ref: &'static RefCell<RadioSpi>, cs_pin: RadioCsPin, reset_pin: R
         .set_preamble_length(PreambleLength::L8)
         .set_spreading_factor(SpreadingFactor::S10) // High SF == Best range
         .set_sync_word(SyncWord::PRIVATE);
-    rfm95.set_config(&lora_config).unwrap();
+    rfm95.set_config(&lora_config).unwrap(); // Unwrap safe
 
     Radio{driver: rfm95}
 }
 
-type SPIDevice = RefCellDevice<'static, RadioSpi, RadioCsPin, SysDelay>;
+type SPIDevice = RefCellDevice<'static, SensorSpi, RadioCsPin, SysDelay>;
 type RFM95 = Rfm95Driver<SPIDevice>;
 /// Top-level interface for the radio module.
 pub struct Radio {
@@ -91,102 +92,4 @@ pub enum RxError {
 pub enum TxError {
     InvalidBufferSize,
     IoError,
-}
-
-pub mod tests {
-    use embedded_lora_rfm95::error::RxCompleteError;
-    use ufmt::uwrite;
-
-    pub fn range_test_tx(mut board: crate::board::Board) -> ! {
-        let mut current_time = Time::default();
-        board.timer_b0.start(msp430fr2x5x_hal::clock::REFOCLK); // 1 second timer
-        board.radio.transmit_start(&time_to_bytes(&current_time)).unwrap();
-        loop {
-            // Sends at most one message per second.
-            if board.timer_b0.wait().is_ok() {
-                current_time.increment();
-                
-                if board.radio.transmit_is_complete().is_ok() {
-                    board.gpio.green_led.toggle();
-                    board.radio.transmit_start(&time_to_bytes(&current_time)).unwrap();
-                }
-            }
-        }
-    }
-
-    fn time_to_bytes(time: &Time) -> [u8;8] {
-        [
-            time.hours / 10 + b'0', 
-            time.hours % 10 + b'0', 
-            b':', 
-            time.minutes / 10 + b'0', 
-            time.minutes % 10 + b'0', 
-            b':', 
-            time.seconds / 10 + b'0', 
-            time.seconds % 10 + b'0'
-        ]
-    }
-
-    pub fn range_test_rx(mut board: crate::board::Board) -> ! {
-        let mut buf = [0u8; super::RFM95_FIFO_SIZE];
-        let mut current_time = Time::default();
-        board.timer_b0.start(msp430fr2x5x_hal::clock::REFOCLK); // 1 second timer
-        board.radio.recieve_start(None);
-        loop {
-            match board.radio.recieve_is_complete(&mut buf) {
-                Err(nb::Error::Other(RxCompleteError::TimeoutError(_))) => board.radio.recieve_start(None),
-                Err(_e) => (),
-                Ok(msg) => {
-                    let Ok(signal_strength) = board.radio.driver.get_packet_strength() else {continue};
-                    let Ok(rssi) = board.radio.driver.get_packet_rssi() else {continue};
-                    let Ok(snr) = board.radio.driver.get_packet_snr() else {continue};
-                    crate::println!("[{}] '{}', Strength: {}, RSSI: {}, SNR: {}", current_time, core::str::from_utf8(msg).unwrap(), signal_strength, rssi, snr);
-                    board.radio.recieve_start(None);
-                },
-            }
-            if board.timer_b0.wait().is_ok() {
-                current_time.increment();
-            }
-        }
-    }
-    #[derive(Default)]
-    struct Time {
-        seconds: u8,
-        minutes: u8,
-        hours: u8,
-    }
-    impl Time {
-        /// Add one second to the time.
-        pub fn increment(&mut self) {
-            if self.seconds < 59 {
-                self.seconds += 1;
-                return;
-            }
-
-            self.seconds = 0;
-            if self.minutes < 59 {
-                self.minutes += 1;
-                return;
-            }
-
-            self.minutes = 0;
-            self.hours += 1;
-        }
-    }
-    impl ufmt::uDisplay for Time {
-        fn fmt<W: ufmt::uWrite + ?Sized>(&self, f: &mut ufmt::Formatter<'_, W>) -> Result<(), W::Error> {
-            for (i, &val) in [self.hours, self.minutes, self.seconds].iter().enumerate() {
-                if val < 10 {
-                    ufmt::uwrite!(f, "0{}", val)?;
-                }
-                else {
-                    ufmt::uwrite!(f, "{}", val)?; 
-                }
-                if i != 2 {
-                    ufmt::uwrite!(f, ":")?;
-                }
-            }
-            Ok(())
-        }
-    }
 }
