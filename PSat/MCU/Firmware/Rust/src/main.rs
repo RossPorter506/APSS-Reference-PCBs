@@ -4,7 +4,7 @@
 #![feature(abi_msp430_interrupt)]
 
 use core::{cell::RefCell, sync::atomic::Ordering};
-use defmt::{Format, debug, error, expect, info, panic, println, trace, unwrap, warn};
+use defmt::{Format, debug, info, println, trace, unwrap, warn};
 use embedded_hal::{delay::DelayNs, digital::OutputPin, spi::SpiBus};
 use portable_atomic::AtomicBool;
 use arrayvec::ArrayVec;
@@ -13,7 +13,6 @@ use msp430::{critical_section, interrupt::{Mutex, enable as enable_interrupts}};
 use msp430_rt::entry;
 use msp430fr2x5x_hal::lpm::enter_lpm0;
 use msp430fr2355::interrupt;
-use ufmt::derive::uDebug;
 use uom::si::{f32::Pressure, pressure::pascal, thermodynamic_temperature::degree_celsius};
 
 // Internal modules
@@ -29,8 +28,8 @@ mod led;
 
 // Internal imports
 use crate::{
-    board::{BeaconMode, FlashMem, McuBoard, NonvolatileMemory, Stack}, 
-    gps::{Altitude, Degrees, GGA_DATA, GPS_MSG_BUF, GgaMessage, GpsFixType, UtcTime},
+    board::{BeaconMode, FlashMem, Stack}, 
+    gps::{GGA_DATA, GPS_MSG_BUF, GgaMessage, GpsFixType, UtcTime},
     led::Led,
 };
 

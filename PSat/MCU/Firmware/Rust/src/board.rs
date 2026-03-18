@@ -2,19 +2,19 @@
 
 #![allow(dead_code)]
 use bmp390::sync::Bmp390;
-use defmt::{debug, info, panic, println, trace, unwrap};
+use defmt::{debug, println, trace, unwrap};
 use embedded_storage::nor_flash::NorFlash;
 use mx25v::blocking::MX25V1606;
 use static_assertions::assert_type_eq_all;
 use uom::si::{f32::Pressure, pressure::pascal};
-use core::{cell::RefCell, convert::Infallible, ops::{Deref, DerefMut, Range}};
+use core::{cell::RefCell, ops::{Deref, DerefMut, Range}};
 use msp430fr2355::Peripherals;
 use msp430fr2x5x_hal::{
     adc::{Adc, AdcConfig, ClockDivider, Predivider, Resolution, SampleTime, SamplingRate}, 
     clock::{Aclk, Clock, ClockConfig, DcoclkFreqSel, MclkDiv, Smclk, SmclkDiv}, 
     delay::SysDelay, 
     fram::Fram, 
-    gpio::{Batch, Floating, Input, Output, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7, PinNum, Pulldown}, 
+    gpio::{Batch, Floating, Input, Output, P1, P2, P3, P4, P5, P6, Pin, Pin0, Pin1, Pin3, Pin4, Pin5, Pin6, Pin7, PinNum}, 
     i2c::{GlitchFilter, I2cConfig}, 
     info_mem::InfoMemory, 
     pac::TB0, 
@@ -26,7 +26,7 @@ use msp430fr2x5x_hal::{
     timer::{Timer, TimerParts3}, 
     watchdog::Wdt
 };
-use embedded_hal::{delay::DelayNs, digital::{InputPin, OutputPin, StatefulOutputPin}};
+use embedded_hal::{delay::DelayNs, digital::{InputPin, OutputPin}};
 use embedded_hal_bus::{i2c::RefCellDevice as I2cRefCellDevice, spi::RefCellDevice as SpiRefCellDevice};
 use static_cell::StaticCell;
 use crate::{MAIN_LOOP_FREQ_HZ, SensorData, State, Timestamps, gps::{Gps, UtcTime}, icm42670::Imu, led::RgbLed, lora::Radio, pin_mappings::*};
