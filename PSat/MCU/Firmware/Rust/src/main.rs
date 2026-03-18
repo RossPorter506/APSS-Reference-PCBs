@@ -78,9 +78,7 @@ fn main() -> ! {
     loop {
         state_machine.process(&mut system);
 
-        system.status_led.blue.on(); // Blue LED pin serves as a counter to show how often the MCU is idle
         enter_lpm0(); // Sleep until RTC wakes us up in MAIN_LOOP_PERIOD_MS.
-        system.status_led.blue.off();
 
         // After RTC interrupt wakes us up the time is updated
         let new_time = critical_section::with(|cs| CURRENT_TIME.borrow_ref(cs).clone());
@@ -93,6 +91,8 @@ fn main() -> ! {
 /// Reads data out from flash memory and transmits it over SPI.
 fn recovery(mut system: System) -> ! {
     info!("Entering data recovery mode.");
+    system.status_led.green();
+
     /// Read this many bytes from the flash memory at once
     const DATA_SIZE: usize = 256;
     const { assert!(FlashMem::CAPACITY.is_multiple_of(DATA_SIZE as u32)) }
@@ -123,7 +123,8 @@ fn recovery(mut system: System) -> ! {
             system.gpio.data_extract_cs.set_high();
         }
         info!("Data recovery complete.");
-        system.delay.delay_ms(1000);
+        system.delay.delay_ms(100);
+        system.status_led.green.toggle();
     }
 }
 
@@ -238,6 +239,16 @@ impl StateMachine {
     /// Perform actions that should occur once when transitioning between states (Mealy-style)
     fn state_transition_actions(&mut self, new_state: State, system: &mut System) {
         use State::*;
+
+        match self.state {
+            Idle        => system.status_led.blue(),
+            Calibration => system.status_led.yellow(),
+            Preflight   => system.status_led.green(),
+            Flight      => system.status_led.magenta(),
+            Landed      => system.status_led.cyan(),
+            Recovered   => system.status_led.off(),
+        }
+
         // Beacon mode
         match new_state {
             Idle | Recovered => system.beacon_mode(BeaconMode::AutoSleep),
